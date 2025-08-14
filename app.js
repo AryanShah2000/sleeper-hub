@@ -13,8 +13,10 @@ const el = (tag, attrs = {}, kids = []) => {
   (Array.isArray(kids) ? kids : [kids]).filter(Boolean).forEach((k) => n.append(k));
   return n;
 };
-const TTL = 3 * 3600 * 1000;                 // 3 hours
+const TTL = 3 * 3600 * 1000; // 3h
 const ck = (u) => 'cache:' + u;
+const debug = (msg) => { console.log('[MFA]', msg); const d = $('#debug'); if (d) d.textContent = msg; };
+
 async function fetchJSON(url) {
   const now = Date.now();
   try {
@@ -34,6 +36,7 @@ function renderStatus(kind, msg) {
   const s = $('#status'); if (!s) return;
   s.className = 'status ' + (kind || '');
   s.innerHTML = msg;
+  debug(msg);
 }
 
 // ===== Sleeper fetches =====
@@ -57,7 +60,7 @@ async function loadPlayersMap() {
   return await fetchJSON(`https://api.sleeper.app/v1/players/nfl`);
 }
 
-// ===== Projections (Rotowire via Sleeper) =====
+// ===== Projections (Rotowire) =====
 const PROVIDER = 'rotowire';
 function feedPPR(it) {
   const ks = ['ppr', 'pts_ppr', 'fantasy_points_ppr'];
@@ -153,8 +156,7 @@ function rankPct(vals, mine) {
 }
 function parseBD(meta) {
   for (const k of ['birth_date', 'birthdate', 'birthDate']) {
-    const raw = meta?.[k];
-    if (!raw) continue;
+    const raw = meta?.[k]; if (!raw) continue;
     const d = new Date(String(raw).slice(0, 10));
     if (!isNaN(d)) return d;
   }
@@ -353,6 +355,21 @@ async function renderUserSummary() {
   $('#userSummary').classList.remove('hidden');
   $('#contextNote').textContent = '';
 
+  // Ensure containers exist
+  if (!document.getElementById('usTabs')) {
+    document.getElementById('userSummary').innerHTML = `
+      <div class="tabs" id="usTabs">
+        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
+        <button class="tab-btn" data-tab="us-proj">Projections</button>
+        <button class="tab-btn" data-tab="us-byes">Bye Count</button>
+      </div>
+      <div class="sections">
+        <section id="us-root" class="active"><div id="usRootTable"></div></section>
+        <section id="us-proj"><div id="usProjTable"></div></section>
+        <section id="us-byes"><div id="usByeTable"></div></section>
+      </div>`;
+  }
+
   const week = +($('#weekSelect').value || 1);
   const seasonSel = +($('#seasonMain').value || 2025);
 
@@ -417,6 +434,29 @@ async function renderSelectedLeague() {
   const myUser = users.find((u) => u.user_id === myRoster.owner_id) || {};
   const myTeamName = (myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster.roster_id}`;
 
+  // Ensure league view containers exist
+  if (!document.getElementById('leagueTabs')) {
+    document.getElementById('leagueViews').innerHTML = `
+      <div class="tabs" id="leagueTabs">
+        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
+        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
+        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
+        <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
+      </div>
+      <div class="sections" id="leagueSections">
+        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
+        <section id="tab-pos"><div id="posTable"></div></section>
+        <section id="tab-matchup">
+          <div id="matchupSummary"></div>
+          <div class="row" style="margin-top:8px">
+            <div id="myStarters"></div>
+            <div id="oppStarters"></div>
+          </div>
+        </section>
+        <section id="tab-byes"><div id="byeMatrix"></div></section>
+      </div>`;
+  }
+
   renderRoster($('#rosterTable'), myRoster, g.players, season);
 
   const scoring = league.scoring_settings || {};
@@ -445,7 +485,7 @@ async function renderSelectedLeague() {
 
 // ===== Shared loader used by landing + sidebar button =====
 async function loadForUsername(uname) {
-  console.log('[MFA] loadForUsername', uname);
+  debug(`loadForUsername ${uname}`);
   resetMain();
   renderStatus('', 'Looking up your leagues…');
   try {
@@ -551,77 +591,78 @@ function wireEvents() {
   });
 }
 
-// -- Safety net: build required markup if HTML is missing pieces
+// -- Build required markup (or overwrite if missing/empty)
 function ensureScaffold() {
-  const once = (parent, selector, builder) => {
-    if (!parent.querySelector(selector)) parent.append(builder());
-  };
-
   const app = document.getElementById('appLayout');
   const aside = app?.querySelector('aside');
   if (aside && !aside.children.length) {
-    const status = el('div', { id: 'status', class: 'status', html: 'Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.' });
-    const inputs = el('div', { class: 'inputs' }, [
-      el('div', {}, [ el('label', { for: 'username', html: 'Sleeper Username' }), el('input', { id: 'username', placeholder: '' }) ]),
-      el('div', { style: 'align-self:end; display:flex; gap:8px; justify-content:flex-end' }, [ el('button', { id: 'viewLeaguesBtn', disabled: 'true', html: 'View Leagues' }) ])
-    ]);
-    const row2 = el('div', { class: 'row-2' }, [ el('input', { id: 'manualLeagueId', placeholder: 'League ID (optional)' }), el('button', { id: 'addLeagueBtn', disabled: 'true', html: 'Add' }) ]);
-    const head1 = el('div', { class: 'nav-head', html: 'Overview' });
-    const summaryItem = el('div', { id: 'summaryItem', class: 'summary-item hidden' }, [ el('div', {}, [ el('div', { class: 'li-title', html: 'User Summary' }), el('div', { class: 'li-sub', html: 'Cross-league view' }) ]) ]);
-    const head2 = el('div', { class: 'nav-head', html: 'Your Leagues' });
-    const leagueList = el('div', { id: 'leagueList', class: 'league-list' });
-    aside.append(status, inputs, row2, head1, summaryItem, head2, leagueList);
+    aside.innerHTML = `
+      <div id="status" class="status">Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.</div>
+      <div class="inputs">
+        <div><label for="username">Sleeper Username</label><input id="username" placeholder="" /></div>
+        <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end"><button id="viewLeaguesBtn" disabled>View Leagues</button></div>
+      </div>
+      <div class="row-2"><input id="manualLeagueId" placeholder="League ID (optional)" /><button id="addLeagueBtn" disabled>Add</button></div>
+      <div class="nav-head">Overview</div>
+      <div id="summaryItem" class="summary-item hidden"><div><div class="li-title">User Summary</div><div class="li-sub">Cross-league view</div></div></div>
+      <div class="nav-head">Your Leagues</div>
+      <div id="leagueList" class="league-list"></div>`;
   }
 
   const controls = app?.querySelector('.main .controls');
   if (controls && !controls.children.length) {
-    const g1 = el('div', { class: 'group', style: 'min-width:260px' }, [ el('div', { class: 'note', id: 'contextNote' }) ]);
-    const g2 = el('div', { class: 'group hidden', id: 'seasonGroup' }, [
-      el('label', { for: 'seasonMain', html: 'Season' }),
-      (() => { const s = el('select', { id: 'seasonMain' }); s.append(el('option', { value: '2025', html: '2025' }), el('option', { value: '2024', html: '2024' })); s.value = '2025'; return s; })()
-    ]);
-    const g3 = el('div', { class: 'group hidden', id: 'weekGroup' }, [ el('label', { for: 'weekSelect', html: 'Week' }), el('select', { id: 'weekSelect' }) ]);
-    controls.append(g1, g2, g3);
+    controls.innerHTML = `
+      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
+      <div class="group hidden" id="seasonGroup">
+        <label for="seasonMain">Season</label>
+        <select id="seasonMain"><option value="2025" selected>2025</option><option value="2024">2024</option></select>
+      </div>
+      <div class="group hidden" id="weekGroup">
+        <label for="weekSelect">Week</label>
+        <select id="weekSelect"></select>
+      </div>`;
   }
 
+  // Always ensure these sections exist (overwrite if empty)
   const us = document.getElementById('userSummary');
   if (us && !us.children.length) {
-    const tabs = el('div', { class: 'tabs', id: 'usTabs' }, [
-      el('button', { class: 'tab-btn active', 'data-tab': 'us-root', html: 'Who to Root For' }),
-      el('button', { class: 'tab-btn', 'data-tab': 'us-proj', html: 'Projections' }),
-      el('button', { class: 'tab-btn', 'data-tab': 'us-byes', html: 'Bye Count' })
-    ]);
-    const sections = el('div', { class: 'sections' }, [
-      el('section', { id: 'us-root', class: 'active' }, el('div', { id: 'usRootTable' })),
-      el('section', { id: 'us-proj' }, el('div', { id: 'usProjTable' })),
-      el('section', { id: 'us-byes' }, el('div', { id: 'usByeTable' }))
-    ]);
-    us.append(tabs, sections);
+    us.innerHTML = `
+      <div class="tabs" id="usTabs">
+        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
+        <button class="tab-btn" data-tab="us-proj">Projections</button>
+        <button class="tab-btn" data-tab="us-byes">Bye Count</button>
+      </div>
+      <div class="sections">
+        <section id="us-root" class="active"><div id="usRootTable"></div></section>
+        <section id="us-proj"><div id="usProjTable"></div></section>
+        <section id="us-byes"><div id="usByeTable"></div></section>
+      </div>`;
   }
 
   const lv = document.getElementById('leagueViews');
   if (lv && !lv.children.length) {
-    const tabs2 = el('div', { class: 'tabs', id: 'leagueTabs' }, [
-      el('button', { class: 'tab-btn active', 'data-tab': 'tab-roster', html: 'My Roster' }),
-      el('button', { class: 'tab-btn', 'data-tab': 'tab-pos', html: 'Team Projections' }),
-      el('button', { class: 'tab-btn', 'data-tab': 'tab-matchup', html: 'Opponent Projections' }),
-      el('button', { class: 'tab-btn', 'data-tab': 'tab-byes', html: 'Bye Week Matrix' })
-    ]);
-    const sections2 = el('div', { class: 'sections', id: 'leagueSections' }, [
-      el('section', { id: 'tab-roster', class: 'active' }, el('div', { id: 'rosterTable' })),
-      el('section', { id: 'tab-pos' }, el('div', { id: 'posTable' })),
-      el('section', { id: 'tab-matchup' }, [ el('div', { id: 'matchupSummary' }), el('div', { class: 'row', style: 'margin-top:8px' }, [ el('div', { id: 'myStarters' }), el('div', { id: 'oppStarters' }) ]) ]),
-      el('section', { id: 'tab-byes' }, el('div', { id: 'byeMatrix' }))
-    ]);
-    lv.append(tabs2, sections2);
+    lv.innerHTML = `
+      <div class="tabs" id="leagueTabs">
+        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
+        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
+        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
+        <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
+      </div>
+      <div class="sections" id="leagueSections">
+        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
+        <section id="tab-pos"><div id="posTable"></div></section>
+        <section id="tab-matchup">
+          <div id="matchupSummary"></div>
+          <div class="row" style="margin-top:8px">
+            <div id="myStarters"></div>
+            <div id="oppStarters"></div>
+          </div>
+        </section>
+        <section id="tab-byes"><div id="byeMatrix"></div></section>
+      </div>`;
   }
 
-  console.log('[MFA] scaffold ensured (children)', {
-    asideKids: aside?.children.length || 0,
-    controlsKids: controls?.children.length || 0,
-    userSummaryKids: us?.children.length || 0,
-    leagueViewsKids: lv?.children.length || 0
-  });
+  debug('scaffold ensured');
 }
 
 function init() {
@@ -629,10 +670,9 @@ function init() {
   // start on landing; app hidden
   $('#appLayout').classList.add('hidden');
   $('#landing').classList.remove('hidden');
-  // week options
   setWeekOptions();
   wireEvents();
-  console.log('[MFA] ready');
+  debug('ready');
 }
 
 window.addEventListener('DOMContentLoaded', init);
