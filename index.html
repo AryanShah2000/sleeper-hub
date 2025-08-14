@@ -15,13 +15,11 @@
   h1{margin:0;font-size:20px;letter-spacing:.2px;display:flex;align-items:center;gap:10px}
   .logo-bot svg{width:24px;height:24px;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
 
-  /* layout (hidden until after landing) */
   .layout{max-width:1280px;margin:16px auto;padding:0 16px;display:grid;grid-template-columns:360px 1fr;gap:16px}
   aside{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:72vh;display:flex;flex-direction:column}
   .main{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column}
   .hidden{display:none}
 
-  /* sidebar */
   .status{margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#0e1734;color:#bcd;font-size:13px}
   .status.ok{color:#9ff3c8;border-color:#2a5}
   .status.err{color:#ffd1d1;border-color:#a33;background:#2a0e14}
@@ -41,11 +39,9 @@
   .li-title{font-weight:600}
   .li-sub{font-size:12px;color:#8fa1ff99}
 
-  /* main controls */
   .controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
   .controls .group{min-width:160px}
 
-  /* tabs + sections */
   .tabs{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
   .tab-btn{padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1630}
   .tab-btn.active{outline:2px solid var(--accent);color:#000;background:linear-gradient(90deg,var(--accent),var(--accent2))}
@@ -53,7 +49,6 @@
   .sections > section.active{display:block}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
-  /* tables */
   table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px;background:#0b122a;border:1px solid var(--border);border-radius:12px;overflow:hidden}
   th,td{padding:10px;border-bottom:1px solid var(--border)}
   th{background:#10183a;text-align:left;color:#b8c6ff}
@@ -65,15 +60,13 @@
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
 
-  /* full-screen landing */
+  /* landing */
   .landing{
     position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
     background:linear-gradient(180deg,#0b1020,#0a0f1f 60%);
     z-index:9999;
   }
-  .landing-card{
-    display:flex; flex-direction:column; align-items:center; gap:18px; max-width:720px; text-align:center;
-  }
+  .landing-card{display:flex; flex-direction:column; align-items:center; gap:18px; max-width:720px; text-align:center}
   .landing .bot svg{width:160px;height:160px;filter:drop-shadow(0 8px 24px rgba(0,0,0,.35))}
   .bubble{background:#0e1734; border:1px solid var(--border); border-radius:14px; padding:16px 18px; color:#c9d3ffcc}
   .bubble .hi{font-weight:800; color:#e8ecff; margin-bottom:6px}
@@ -86,7 +79,6 @@
 <header>
   <h1>
     <span class="logo-bot" aria-hidden="true">
-      <!-- tiny header robot -->
       <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img">
         <defs><linearGradient id="gh" x1="0" x2="1"><stop offset="0" stop-color="#5ee0ff"/><stop offset="1" stop-color="#84ffb5"/></linearGradient></defs>
         <circle cx="60" cy="14" r="6" fill="url(#gh)"/><rect x="58" y="20" width="4" height="8" rx="2" fill="#5ee0ff"/>
@@ -100,11 +92,10 @@
   </h1>
 </header>
 
-<!-- Full-screen landing (shown first) -->
+<!-- Landing screen -->
 <div id="landing" class="landing">
   <div class="landing-card">
     <div class="bot" aria-hidden="true">
-      <!-- big robot -->
       <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img">
         <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#5ee0ff"/><stop offset="1" stop-color="#84ffb5"/></linearGradient></defs>
         <circle cx="60" cy="14" r="8" fill="url(#g)"/><rect x="58" y="24" width="4" height="10" rx="2" fill="#5ee0ff"/>
@@ -126,12 +117,11 @@
   </div>
 </div>
 
-<!-- Main app (hidden until username entered) -->
+<!-- Main app -->
 <div id="appLayout" class="layout hidden">
   <aside>
     <div id="status" class="status">Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.</div>
 
-    <!-- Username + View -->
     <div class="inputs">
       <div>
         <label for="username">Sleeper Username</label>
@@ -142,7 +132,6 @@
       </div>
     </div>
 
-    <!-- Optional: add a specific league -->
     <div class="row-2">
       <input id="manualLeagueId" placeholder="League ID (optional)" />
       <button id="addLeagueBtn" disabled>Add</button>
@@ -161,11 +150,8 @@
   </aside>
 
   <div class="main">
-    <!-- center controls -->
     <div class="controls">
-      <div class="group" style="min-width:260px">
-        <div class="note" id="contextNote"></div>
-      </div>
+      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
         <select id="seasonMain">
@@ -179,7 +165,6 @@
       </div>
     </div>
 
-    <!-- USER SUMMARY -->
     <div id="userSummary" class="hidden">
       <div class="tabs" id="usTabs">
         <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
@@ -193,7 +178,6 @@
       </div>
     </div>
 
-    <!-- LEAGUE VIEWS -->
     <div id="leagueViews" class="hidden">
       <div class="tabs" id="leagueTabs">
         <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
@@ -220,15 +204,20 @@
 </div>
 
 <script>
-/* ===== DOM helpers & cache ===== */
+/* ===== App state FIRST (so handlers can access it) ===== */
+let g={players:null,userId:null,leagues:{},selected:null, mode:'summary'};
+
+/* ===== Helpers & cache ===== */
 const $ = s => document.querySelector(s);
 const el = (tag, attrs={}, kids=[]) => { const n=document.createElement(tag); for (const [k,v] of Object.entries(attrs)){ k==='class'? n.className=v : k==='html'? n.innerHTML=v : n.setAttribute(k,v); } (Array.isArray(kids)?kids:[kids]).filter(Boolean).forEach(k=>n.append(k)); return n; };
 const TTL = 3*3600*1000; const ck = u=>'cache:'+u;
 async function fetchJSON(url){
-  const now=Date.now(); try{ const c=localStorage.getItem(ck(url)); if(c){ const {ts,data}=JSON.parse(c); if(now-ts<TTL) return data; } }catch{}
+  const now=Date.now();
+  try{ const c=localStorage.getItem(ck(url)); if(c){ const {ts,data}=JSON.parse(c); if(now-ts<TTL) return data; } }catch{}
   const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} for ${url}`);
   const data = await r.json(); try{ localStorage.setItem(ck(url), JSON.stringify({ts:now,data})) }catch{}; return data;
 }
+function renderStatus(kind, msg){ const s=$('#status'); if(!s) return; s.className='status '+(kind||''); s.innerHTML=msg; }
 
 /* ===== Sleeper fetches ===== */
 async function resolveUserId(usernameOrId){
@@ -249,7 +238,7 @@ async function loadLeagueBundle(leagueId){
 }
 async function loadPlayersMap(){ return await fetchJSON(`https://api.sleeper.app/v1/players/nfl`); }
 
-/* ===== Projections (Rotowire) ===== */
+/* ===== Projections ===== */
 const PROVIDER='rotowire';
 function feedPPR(it){ const ks=['ppr','pts_ppr','fantasy_points_ppr']; for(const k of ks){ if(it?.[k]!=null) return +it[k]||0 } const s=it?.stats||{}; for(const k of ks){ if(s?.[k]!=null) return +s[k]||0 } return 0 }
 async function providerRows(season, week, season_type){
@@ -271,7 +260,7 @@ async function projByPid(season, week, season_type, players, scoring){
   const rows=await providerRows(season, week, season_type); const out={}; Object.keys(rows).forEach(pid=> out[pid]=rescored(pid,rows,players,scoring)); return out;
 }
 
-/* ===== Helpers ===== */
+/* ===== Roster helpers, ages, byes ===== */
 function rosterPids(roster){ const s=new Set([...(roster.players||[]), ...(roster.starters||[]), ...(roster.taxi||[])]); s.delete('0'); return [...s]; }
 function rosterRows(roster, players, projFn){
   return rosterPids(roster).map(pid=>{ const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); return {pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:projFn? +projFn(pid)||0 : null, bye:m.bye_week}; });
@@ -294,8 +283,7 @@ function age(meta){ if(meta?.age!=null){ const n=+meta.age; if(Number.isFinite(n
 const BYE_2025={ATL:5,CHI:5,GB:5,PIT:5,HOU:6,MIN:6,BAL:7,BUF:7,ARI:8,DET:8,JAX:8,LV:8,LAR:8,SEA:8,CLE:9,NYJ:9,PHI:9,TB:9,CIN:10,DAL:10,KC:10,TEN:10,IND:11,NO:11,DEN:12,LAC:12,MIA:12,WAS:12,CAR:14,NE:14,NYG:14,SF:14};
 function teamBye(team, season){ return season==2025 ? BYE_2025[team] : null }
 
-/* ===== Tables ===== */
-function renderStatus(kind, msg){ const s=$('#status'); s.className='status '+(kind||''); s.innerHTML=msg; }
+/* ===== Render helpers ===== */
 function renderTable(container, headers, rows){
   const table=el('table'), thead=el('thead'), tbody=el('tbody');
   thead.append(el('tr',{}, headers.map(h=>el('th',{html:h}))));
@@ -313,7 +301,7 @@ function renderSortableTable(container, headers, rows, types){
   head(); body(); arrows(); table.append(thead,tbody); container.innerHTML=''; container.append(table);
 }
 
-/* ===== Per-league views ===== */
+/* ===== League/summary renders ===== */
 function renderRoster(container, roster, players, season){
   const rows = rosterRows(roster, players).map(r=>{
     const m=players[r.pid]||{}; const a=age(m); const ageDisp=Number.isInteger(a)?a:'—';
@@ -353,7 +341,7 @@ function byeMatrix(roster, players, season, weeks=[5,6,7,8,9,10,11,12,13,14]){
 }
 function renderBye(container, {order,weeks,matrix}){ const headers=['Pos',...weeks.map(w=>'W'+w),'Total'], rows=[]; let col=Array(weeks.length).fill(0); for(const pos of order){ const counts=weeks.map((w,i)=>{ const v=(matrix[pos]||{})[w]||0; col[i]+=v; return v; }); rows.push([pos,...counts, counts.reduce((s,c)=>s+c,0)]);} rows.push(['TOTAL',...col, col.reduce((s,c)=>s+c,0)]); renderTable(container, headers, rows); }
 
-/* ===== USER SUMMARY ===== */
+/* ===== User summary ===== */
 function exposuresAcrossLeagues(leagues, userId, players){
   const counter = new Map();
   for(const {rosters} of Object.values(leagues)){
@@ -418,19 +406,14 @@ async function renderUserSummary(){
   renderTable($('#usByeTable'), ['League','Players on Bye (W'+week+')'], byeRows);
 }
 
-/* ===== App state & wiring ===== */
-let g={players:null,userId:null,leagues:{},selected:null, mode:'summary'};
-
+/* ===== Utility UI ===== */
 function setWeekOptions(){ const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w),html:'Week '+w}); if(w===1) o.selected=true; wk.append(o); } }
 function showControls(){ $('#seasonGroup').classList.remove('hidden'); $('#weekGroup').classList.remove('hidden'); }
 function resetMain(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden');
   $('#contextNote').textContent='';
-  $('#rosterTable').innerHTML=''; $('#posTable').innerHTML=''; $('#matchupSummary').innerHTML=''; $('#myStarters').innerHTML=''; $('#oppStarters').innerHTML=''; $('#byeMatrix').innerHTML='';
-  $('#usRootTable').innerHTML=''; $('#usProjTable').innerHTML=''; $('#usByeTable').innerHTML='';
+  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#usRootTable','#usProjTable','#usByeTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
 }
-
-/* sidebar */
 function renderLeagueList(active=null){
   const list=$('#leagueList'); list.innerHTML='';
   const ids=Object.keys(g.leagues);
@@ -455,8 +438,6 @@ function renderLeagueList(active=null){
     list.append(item);
   });
 }
-
-/* render selected league */
 async function renderSelectedLeague(){
   const id=g.selected; if(!id) return;
   const {league, users, rosters} = g.leagues[id]; const season=+league.season; const week=+($('#weekSelect').value||1);
@@ -481,9 +462,57 @@ async function renderSelectedLeague(){
   $('#contextNote').textContent = `${league.name} • ${league.season}`;
 }
 
+/* ===== Shared loader used by BOTH landing + sidebar button ===== */
+async function loadForUsername(uname){
+  console.log('[MFA] loadForUsername', uname);
+  resetMain();
+  renderStatus('', 'Looking up your leagues…');
+
+  try{
+    if(!g.players) g.players = await loadPlayersMap();
+
+    const uid = await resolveUserId(uname);
+    if(!uid){ renderStatus('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
+    g.userId = uid;
+
+    const season=$('#seasonMain').value || '2025';
+    const leagues = await loadMyLeagues(uid, season);
+    if(!Array.isArray(leagues) || leagues.length===0){
+      renderStatus('err', `No leagues found in ${season}. Try switching seasons or check the username.`);
+      $('#leagueList').innerHTML = '';
+      return;
+    }
+
+    g.leagues = {};
+    await Promise.all(leagues.map(async L=>{
+      g.leagues[L.league_id] = await loadLeagueBundle(L.league_id);
+    }));
+
+    setWeekOptions(); showControls();
+
+    const sm = $('#summaryItem');
+    sm.classList.remove('hidden');
+    sm.classList.add('active');
+    sm.onclick = async ()=>{
+      g.mode='summary';
+      g.selected=null;
+      document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
+      sm.classList.add('active');
+      await renderUserSummary();
+    };
+
+    renderLeagueList();
+    g.mode='summary';
+    await renderUserSummary();
+    $('#contextNote').textContent = '';
+    renderStatus('ok', `Loaded ${leagues.length} league(s).`);
+  }catch(err){
+    console.error('[MFA] loadForUsername error', err);
+    renderStatus('err','Failed to load leagues.');
+  }
+}
+
 /* ===== Events ===== */
-$('#username').addEventListener('input', ()=>{ $('#viewLeaguesBtn').disabled = !$('#username').value.trim(); });
-$('#manualLeagueId').addEventListener('input', ()=>{ $('#addLeagueBtn').disabled = !$('#manualLeagueId').value.trim(); });
 $('#weekSelect').addEventListener('change', async ()=>{ if(g.mode==='summary') await renderUserSummary(); else await renderSelectedLeague(); });
 $('#seasonMain').addEventListener('change', async ()=>{
   if(!g.userId) return;
@@ -500,38 +529,13 @@ $('#seasonMain').addEventListener('change', async ()=>{
 });
 
 $('#viewLeaguesBtn').addEventListener('click', async ()=>{
-  resetMain(); renderStatus('', 'Looking up your leagues…');
-  try{
-    const uname = $('#username').value.trim();
-    if(!uname){ renderStatus('err','Please enter a username.'); return; }
-    if(!g.players) g.players = await loadPlayersMap();
-    const uid = await resolveUserId(uname);
-    if(!uid){ renderStatus('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
-    g.userId = uid;
-
-    const season=$('#seasonMain').value; // default is 2025
-    const leagues = await loadMyLeagues(uid, season);
-    if(!Array.isArray(leagues) || leagues.length===0){ renderStatus('err', `No leagues found in ${season}.`); $('#leagueList').innerHTML=''; return; }
-
-    g.leagues = {};
-    await Promise.all(leagues.map(async L => { g.leagues[L.league_id] = await loadLeagueBundle(L.league_id); }));
-
-    setWeekOptions(); showControls();
-    const sm = $('#summaryItem'); sm.classList.remove('hidden'); sm.classList.add('active');
-    sm.onclick = async ()=>{ g.mode='summary'; g.selected=null; document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active')); sm.classList.add('active'); await renderUserSummary(); };
-
-    renderStatus('ok', `Loaded ${leagues.length} league(s).`);
-    renderLeagueList();
-
-    g.mode='summary'; await renderUserSummary();
-    $('#contextNote').textContent = '';
-
-  }catch(err){
-    console.error(err);
-    renderStatus('err', `Failed to load leagues.`);
-  }
+  const uname = $('#username').value.trim();
+  if(!uname){ renderStatus('err','Please enter a username.'); return; }
+  await loadForUsername(uname);
 });
 
+$('#username').addEventListener('input', ()=>{ $('#viewLeaguesBtn').disabled = !$('#username').value.trim(); });
+$('#manualLeagueId').addEventListener('input', ()=>{ $('#addLeagueBtn').disabled = !$('#manualLeagueId').value.trim(); });
 $('#addLeagueBtn').addEventListener('click', async ()=>{
   const id=$('#manualLeagueId').value.trim(); if(!id) return;
   try{
@@ -540,7 +544,6 @@ $('#addLeagueBtn').addEventListener('click', async ()=>{
   }catch(e){ console.error(e); renderStatus('err','Could not add that League ID.'); }
 });
 
-// League/User tabs
 document.addEventListener('click', (e)=>{
   const btn1 = e.target.closest('#leagueTabs .tab-btn');
   if(btn1){ document.querySelectorAll('#leagueTabs .tab-btn').forEach(x=>x.classList.remove('active')); btn1.classList.add('active');
@@ -550,94 +553,28 @@ document.addEventListener('click', (e)=>{
     const id=btn2.dataset.tab; document.querySelectorAll('#userSummary .sections > section').forEach(s=>s.classList.toggle('active', s.id===id)); return; }
 });
 
-/* ===== Landing interactions (REPLACE THIS BLOCK) ===== */
-const landingInput = document.querySelector('#landingUsername');
-const landingGo    = document.querySelector('#landingGo');
-
-function showApp(){
-  document.getElementById('landing').classList.add('hidden');
-  document.getElementById('appLayout').classList.remove('hidden');
-}
-
-landingInput.addEventListener('input', ()=>{
-  landingGo.disabled = !landingInput.value.trim();
-});
-landingInput.addEventListener('keydown', (e)=>{
-  if(e.key==='Enter' && !landingGo.disabled) landingGo.click();
-});
-
+/* ===== Landing wiring ===== */
+const landingInput = $('#landingUsername');
+const landingGo    = $('#landingGo');
+landingInput.addEventListener('input', ()=>{ landingGo.disabled = !landingInput.value.trim(); });
+landingInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !landingGo.disabled) landingGo.click(); });
 landingGo.addEventListener('click', async ()=>{
-  const uname = landingInput.value.trim();
-  if(!uname) return;
-
-  // Reveal the main app immediately
-  showApp();
-
-  // Pre-fill sidebar + show loading message
-  document.querySelector('#username').value = uname;
-  document.querySelector('#viewLeaguesBtn').disabled = false;
-  const renderStatus = (kind,msg)=>{
-    const s=document.querySelector('#status');
-    s.className='status '+(kind||'');
-    s.innerHTML=msg;
-  };
-  renderStatus('', 'Looking up your leagues…');
-
-  try{
-    // Ensure players map is loaded
-    if(!g.players) g.players = await loadPlayersMap();
-
-    // Resolve user -> id
-    const uid = await resolveUserId(uname);
-    if(!uid){ renderStatus('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
-    g.userId = uid;
-
-    // Load leagues for selected (default 2025) season
-    const season = document.querySelector('#seasonMain').value;
-    const leagues = await loadMyLeagues(uid, season);
-    if(!Array.isArray(leagues) || leagues.length===0){
-      renderStatus('err', `No leagues found in ${season}. Try switching seasons or check the username.`);
-      document.querySelector('#leagueList').innerHTML = '';
-      return;
-    }
-
-    // Bundle each league
-    g.leagues = {};
-    await Promise.all(leagues.map(async L=>{
-      g.leagues[L.league_id] = await loadLeagueBundle(L.league_id);
-    }));
-
-    // Prep controls + summary nav
-    setWeekOptions(); showControls();
-    const sm = document.querySelector('#summaryItem');
-    sm.classList.remove('hidden');
-    sm.classList.add('active');
-    sm.onclick = async ()=>{
-      g.mode='summary';
-      g.selected=null;
-      document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
-      sm.classList.add('active');
-      await renderUserSummary();
-    };
-
-    // Render sidebar & default view
-    renderLeagueList();
-    g.mode='summary';
-    await renderUserSummary();
-    document.querySelector('#contextNote').textContent = '';
-    renderStatus('ok', `Loaded ${leagues.length} league(s).`);
-  }catch(err){
-    console.error(err);
-    renderStatus('err','Failed to load leagues.');
-  }
+  const uname = landingInput.value.trim(); if(!uname) return;
+  // Reveal app UI and mirror username into sidebar
+  $('#landing').classList.add('hidden');
+  $('#appLayout').classList.remove('hidden');
+  $('#username').value = uname;
+  $('#viewLeaguesBtn').disabled = false;
+  // Kick off load immediately
+  await loadForUsername(uname);
 });
 
 /* init */
 (function init(){
-  // Start on landing; app hidden
-  document.getElementById('appLayout').classList.add('hidden');
-  document.getElementById('landing').classList.remove('hidden');
-  // prepare week options for when app becomes visible
+  // start on landing
+  $('#appLayout').classList.add('hidden');
+  $('#landing').classList.remove('hidden');
+  // prepare week options for later
   const wk=$('#weekSelect'); if(wk && !wk.children.length){ for(let w=1; w<=18; w++){ const o=el('option',{value:String(w),html:'Week '+w}); if(w===1) o.selected=true; wk.append(o); } }
 })();
 </script>
