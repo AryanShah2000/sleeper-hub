@@ -4,10 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>My Fantasy Agent</title>
-
-<!-- Tiny inline favicon to avoid 404s -->
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="%235ee0ff"/><stop offset="1" stop-color="%2384ffb5"/></linearGradient></defs><circle cx="32" cy="8" r="6" fill="url(%23g)"/><rect x="30" y="14" width="4" height="8" rx="2" fill="%235ee0ff"/><rect x="12" y="22" width="40" height="24" rx="8" fill="%230f1a3a" stroke="%232a3a72"/><circle cx="22" cy="34" r="5" fill="%235ee0ff"/><circle cx="42" cy="34" r="5" fill="%235ee0ff"/><rect x="20" y="44" width="24" height="3" rx="1.5" fill="%2324346b"/></svg>'/>
-
 <style>
   :root{ --bg:#0b1020; --panel:#121a35; --muted:#6b7aa6; --text:#e8ecff; --accent:#5ee0ff; --accent2:#84ffb5; --warn:#ffd166; --border: rgba(255,255,255,0.12); }
   *{box-sizing:border-box}
@@ -33,6 +29,7 @@
   #username{font-size:16px}
   button{cursor:pointer;transition:.2s;white-space:nowrap}
   button:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.25)}
+
   .row-2{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:6px}
   .nav-head{font-size:12px;color:#8fa1ff99;margin:12px 0 6px}
   .league-list{display:flex;flex-direction:column;gap:6px;overflow:auto}
@@ -49,6 +46,7 @@
   .tab-btn.active{outline:2px solid var(--accent);color:#000;background:linear-gradient(90deg,var(--accent),var(--accent2))}
   .sections > section{display:none;margin-top:12px}
   .sections > section.active{display:block}
+
   .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
   table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px;background:#0b122a;border:1px solid var(--border);border-radius:12px;overflow:hidden}
@@ -62,19 +60,18 @@
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
 
-  /* Landing */
-  .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(180deg,#0b1020,#0a0f1f 60%); z-index:9999;}
+  /* landing */
+  .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
+           background:linear-gradient(180deg,#0b1020,#0a0f1f 60%); z-index:9999;}
   .landing-card{display:flex; flex-direction:column; align-items:center; gap:18px; max-width:720px; text-align:center}
   .landing .bot svg{width:160px;height:160px;filter:drop-shadow(0 8px 24px rgba(0,0,0,.35))}
+  .football{position:absolute; top:110px; animation:spin 3.5s linear infinite; opacity:.9}
+  @keyframes spin { from{ transform:rotate(0deg) translateY(0); } to{ transform:rotate(360deg) translateY(0); } }
   .bubble{background:#0e1734; border:1px solid var(--border); border-radius:14px; padding:16px 18px; color:#c9d3ffcc}
   .bubble .hi{font-weight:800; color:#e8ecff; margin-bottom:6px}
   .landing .entry{display:flex; gap:8px; width:min(560px,90vw)}
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
-
-  /* 🏈 Football so you know the HTML is fresh */
-  .football{font-size:28px; animation:bounce 1.2s infinite ease-in-out}
-  @keyframes bounce{ 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(-10px) rotate(10deg)} }
 </style>
 </head>
 <body>
@@ -97,7 +94,7 @@
 <!-- Landing (first screen) -->
 <div id="landing" class="landing">
   <div class="landing-card">
-    <div class="football" aria-hidden="true">🏈</div>
+    <div class="football">🏈</div>
     <div class="bot" aria-hidden="true">
       <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img">
         <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#5ee0ff"/><stop offset="1" stop-color="#84ffb5"/></linearGradient></defs>
@@ -154,7 +151,10 @@
 
   <div class="main">
     <div class="controls">
-      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
+      <div class="group" style="min-width:260px">
+        <div class="note" id="contextNote"></div>
+        <div id="debug" class="note"></div>
+      </div>
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
         <select id="seasonMain">
@@ -167,9 +167,6 @@
         <select id="weekSelect"></select>
       </div>
     </div>
-
-    <!-- Debug line -->
-    <div id="debug" class="note"></div>
 
     <!-- USER SUMMARY -->
     <div id="userSummary" class="hidden">
