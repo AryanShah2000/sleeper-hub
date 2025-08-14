@@ -13,7 +13,7 @@ const el = (tag, attrs = {}, kids = []) => {
   (Array.isArray(kids) ? kids : [kids]).filter(Boolean).forEach((k) => n.append(k));
   return n;
 };
-const TTL = 3 * 3600 * 1000;
+const TTL = 3 * 3600 * 1000;                 // 3 hours
 const ck = (u) => 'cache:' + u;
 async function fetchJSON(url) {
   const now = Date.now();
@@ -27,14 +27,11 @@ async function fetchJSON(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status} for ${url}`);
   const data = await r.json();
-  try {
-    localStorage.setItem(ck(url), JSON.stringify({ ts: now, data }));
-  } catch {}
+  try { localStorage.setItem(ck(url), JSON.stringify({ ts: now, data })); } catch {}
   return data;
 }
 function renderStatus(kind, msg) {
-  const s = $('#status');
-  if (!s) return;
+  const s = $('#status'); if (!s) return;
   s.className = 'status ' + (kind || '');
   s.innerHTML = msg;
 }
@@ -45,9 +42,7 @@ async function resolveUserId(usernameOrId) {
     if (/^\d+$/.test(usernameOrId)) return usernameOrId;
     const u = await fetchJSON(`https://api.sleeper.app/v1/user/${encodeURIComponent(usernameOrId)}`);
     return u?.user_id || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 async function loadMyLeagues(userId, season) {
   return await fetchJSON(`https://api.sleeper.app/v1/user/${userId}/leagues/nfl/${season}`);
@@ -62,7 +57,7 @@ async function loadPlayersMap() {
   return await fetchJSON(`https://api.sleeper.app/v1/players/nfl`);
 }
 
-// ===== Projections (Rotowire) =====
+// ===== Projections (Rotowire via Sleeper) =====
 const PROVIDER = 'rotowire';
 function feedPPR(it) {
   const ks = ['ppr', 'pts_ppr', 'fantasy_points_ppr'];
@@ -130,10 +125,8 @@ function selectBest(rows, set, k) {
 function teamPosValues(league, rows) {
   const rp = (league.roster_positions || []).map((x) => String(x).toUpperCase());
   const PURE = { QB: rp.filter((x) => x === 'QB').length, RB: rp.filter((x) => x === 'RB').length, WR: rp.filter((x) => x === 'WR').length, TE: rp.filter((x) => x === 'TE').length };
-  const FLEX = rp.filter((x) => x === 'FLEX').length,
-    SFLEX = rp.filter((x) => x === 'SUPER_FLEX').length;
-  let remaining = rows.slice(),
-    values = {};
+  const FLEX = rp.filter((x) => x === 'FLEX').length, SFLEX = rp.filter((x) => x === 'SUPER_FLEX').length;
+  let remaining = rows.slice(), values = {};
   for (const [pos, k] of Object.entries(PURE)) {
     const { picks, remaining: rem } = selectBest(remaining, new Set([pos]), k);
     remaining = rem;
@@ -216,9 +209,8 @@ function renderSortableTable(container, headers, rows, types) {
       th.classList.remove('sorted-asc', 'sorted-desc');
       const a = th.querySelector('.arrow');
       if (!a) return;
-      if (i === sortCol) {
-        th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc'); a.textContent = sortDir === 'asc' ? '▲' : '▼';
-      } else a.textContent = '';
+      if (i === sortCol) { th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc'); a.textContent = sortDir === 'asc' ? '▲' : '▼'; }
+      else a.textContent = '';
     });
   }
   function body() {
@@ -249,8 +241,7 @@ function renderPos(container, posStats) {
   const order = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'SUPER_FLEX'];
   const rows = [];
   for (const pos of order) {
-    const s = posStats[pos];
-    if (!s) continue;
+    const s = posStats[pos]; if (!s) continue;
     rows.push([pos, s.my_value.toFixed(2), `${s.rank} / ${s.out_of}`, `${s.percentile}%`]);
   }
   renderTable(container, ['Pos', 'Points', 'Rank', 'Percentile'], rows);
@@ -290,7 +281,7 @@ function byeMatrix(roster, players, season, weeks = [5,6,7,8,9,10,11,12,13,14]) 
     if (!m[pos]) m[pos] = Object.fromEntries(weeks.map((w) => [w, 0]));
     if (Number.isInteger(b) && weeks.includes(b)) m[pos][b]++;
   }
-  const order = ['QB', 'RB', 'WR', 'TE', ...[...set].filter((p) => !['QB', 'RB', 'WR', 'TE'].includes(p)).sort()];
+  const order = ['QB', 'RB', 'WR', 'TE', ...[...set].filter((p) => !['QB','RB','WR','TE'].includes(p)).sort()];
   return { order, weeks, matrix: m };
 }
 function renderBye(container, { order, weeks, matrix }) {
@@ -379,11 +370,10 @@ async function renderUserSummary() {
 
 // ===== UI utilities =====
 function setWeekOptions() {
-  const wk = $('#weekSelect');
+  const wk = $('#weekSelect'); if (!wk) return;
   wk.innerHTML = '';
   for (let w = 1; w <= 18; w++) {
-    const o = el('option', { value: String(w), html: 'Week ' + w });
-    if (w === 1) o.selected = true;
+    const o = el('option', { value: String(w), html: 'Week ' + w }); if (w === 1) o.selected = true;
     wk.append(o);
   }
 }
@@ -394,7 +384,8 @@ function resetMain() {
   ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#usRootTable','#usProjTable','#usByeTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
 }
 function renderLeagueList(active = null) {
-  const list = $('#leagueList'); list.innerHTML = '';
+  const list = $('#leagueList'); if (!list) return;
+  list.innerHTML = '';
   const ids = Object.keys(g.leagues);
   if (ids.length === 0) { list.append(el('div', { class: 'li-sub', html: 'No leagues loaded yet.' })); return; }
   ids.forEach((id) => {
@@ -559,115 +550,89 @@ function wireEvents() {
     await loadForUsername(uname);
   });
 }
-// -- Safety net: ensure required markup exists even if HTML shipped without it
+
+// -- Safety net: build required markup if HTML is missing pieces
 function ensureScaffold() {
-  // Sidebar
-  const aside = document.querySelector('#appLayout aside');
-  if (aside && !aside.querySelector('#leagueList')) {
-    aside.innerHTML = `
-      <div id="status" class="status">Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.</div>
-      <div class="inputs">
-        <div>
-          <label for="username">Sleeper Username</label>
-          <input id="username" placeholder="" />
-        </div>
-        <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end">
-          <button id="viewLeaguesBtn" disabled>View Leagues</button>
-        </div>
-      </div>
-      <div class="row-2">
-        <input id="manualLeagueId" placeholder="League ID (optional)" />
-        <button id="addLeagueBtn" disabled>Add</button>
-      </div>
-      <div class="nav-head">Overview</div>
-      <div id="summaryItem" class="summary-item hidden">
-        <div>
-          <div class="li-title">User Summary</div>
-          <div class="li-sub">Cross-league view</div>
-        </div>
-      </div>
-      <div class="nav-head">Your Leagues</div>
-      <div id="leagueList" class="league-list"></div>
-    `;
+  const once = (parent, selector, builder) => {
+    if (!parent.querySelector(selector)) parent.append(builder());
+  };
+
+  const app = document.getElementById('appLayout');
+  const aside = app?.querySelector('aside');
+  if (aside && !aside.children.length) {
+    const status = el('div', { id: 'status', class: 'status', html: 'Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.' });
+    const inputs = el('div', { class: 'inputs' }, [
+      el('div', {}, [ el('label', { for: 'username', html: 'Sleeper Username' }), el('input', { id: 'username', placeholder: '' }) ]),
+      el('div', { style: 'align-self:end; display:flex; gap:8px; justify-content:flex-end' }, [ el('button', { id: 'viewLeaguesBtn', disabled: 'true', html: 'View Leagues' }) ])
+    ]);
+    const row2 = el('div', { class: 'row-2' }, [ el('input', { id: 'manualLeagueId', placeholder: 'League ID (optional)' }), el('button', { id: 'addLeagueBtn', disabled: 'true', html: 'Add' }) ]);
+    const head1 = el('div', { class: 'nav-head', html: 'Overview' });
+    const summaryItem = el('div', { id: 'summaryItem', class: 'summary-item hidden' }, [ el('div', {}, [ el('div', { class: 'li-title', html: 'User Summary' }), el('div', { class: 'li-sub', html: 'Cross-league view' }) ]) ]);
+    const head2 = el('div', { class: 'nav-head', html: 'Your Leagues' });
+    const leagueList = el('div', { id: 'leagueList', class: 'league-list' });
+    aside.append(status, inputs, row2, head1, summaryItem, head2, leagueList);
   }
 
-  // Controls (season/week) in right pane
-  const controls = document.querySelector('.main .controls');
-  if (controls && !controls.querySelector('#weekSelect')) {
-    controls.innerHTML = `
-      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
-      <div class="group hidden" id="seasonGroup">
-        <label for="seasonMain">Season</label>
-        <select id="seasonMain">
-          <option value="2025" selected>2025</option>
-          <option value="2024">2024</option>
-        </select>
-      </div>
-      <div class="group hidden" id="weekGroup">
-        <label for="weekSelect">Week</label>
-        <select id="weekSelect"></select>
-      </div>
-    `;
+  const controls = app?.querySelector('.main .controls');
+  if (controls && !controls.children.length) {
+    const g1 = el('div', { class: 'group', style: 'min-width:260px' }, [ el('div', { class: 'note', id: 'contextNote' }) ]);
+    const g2 = el('div', { class: 'group hidden', id: 'seasonGroup' }, [
+      el('label', { for: 'seasonMain', html: 'Season' }),
+      (() => { const s = el('select', { id: 'seasonMain' }); s.append(el('option', { value: '2025', html: '2025' }), el('option', { value: '2024', html: '2024' })); s.value = '2025'; return s; })()
+    ]);
+    const g3 = el('div', { class: 'group hidden', id: 'weekGroup' }, [ el('label', { for: 'weekSelect', html: 'Week' }), el('select', { id: 'weekSelect' }) ]);
+    controls.append(g1, g2, g3);
   }
 
-  // User Summary section
   const us = document.getElementById('userSummary');
-  if (us && !us.querySelector('#usTabs')) {
-    us.innerHTML = `
-      <div class="tabs" id="usTabs">
-        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
-        <button class="tab-btn" data-tab="us-proj">Projections</button>
-        <button class="tab-btn" data-tab="us-byes">Bye Count</button>
-      </div>
-      <div class="sections">
-        <section id="us-root" class="active"><div id="usRootTable"></div></section>
-        <section id="us-proj"><div id="usProjTable"></div></section>
-        <section id="us-byes"><div id="usByeTable"></div></section>
-      </div>
-    `;
+  if (us && !us.children.length) {
+    const tabs = el('div', { class: 'tabs', id: 'usTabs' }, [
+      el('button', { class: 'tab-btn active', 'data-tab': 'us-root', html: 'Who to Root For' }),
+      el('button', { class: 'tab-btn', 'data-tab': 'us-proj', html: 'Projections' }),
+      el('button', { class: 'tab-btn', 'data-tab': 'us-byes', html: 'Bye Count' })
+    ]);
+    const sections = el('div', { class: 'sections' }, [
+      el('section', { id: 'us-root', class: 'active' }, el('div', { id: 'usRootTable' })),
+      el('section', { id: 'us-proj' }, el('div', { id: 'usProjTable' })),
+      el('section', { id: 'us-byes' }, el('div', { id: 'usByeTable' }))
+    ]);
+    us.append(tabs, sections);
   }
 
-  // League views section
   const lv = document.getElementById('leagueViews');
-  if (lv && !lv.querySelector('#leagueTabs')) {
-    lv.innerHTML = `
-      <div class="tabs" id="leagueTabs">
-        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
-        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
-        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
-        <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
-      </div>
-      <div class="sections" id="leagueSections">
-        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
-        <section id="tab-pos"><div id="posTable"></div></section>
-        <section id="tab-matchup">
-          <div id="matchupSummary"></div>
-          <div class="row" style="margin-top:8px">
-            <div id="myStarters"></div>
-            <div id="oppStarters"></div>
-          </div>
-        </section>
-        <section id="tab-byes"><div id="byeMatrix"></div></section>
-      </div>
-    `;
+  if (lv && !lv.children.length) {
+    const tabs2 = el('div', { class: 'tabs', id: 'leagueTabs' }, [
+      el('button', { class: 'tab-btn active', 'data-tab': 'tab-roster', html: 'My Roster' }),
+      el('button', { class: 'tab-btn', 'data-tab': 'tab-pos', html: 'Team Projections' }),
+      el('button', { class: 'tab-btn', 'data-tab': 'tab-matchup', html: 'Opponent Projections' }),
+      el('button', { class: 'tab-btn', 'data-tab': 'tab-byes', html: 'Bye Week Matrix' })
+    ]);
+    const sections2 = el('div', { class: 'sections', id: 'leagueSections' }, [
+      el('section', { id: 'tab-roster', class: 'active' }, el('div', { id: 'rosterTable' })),
+      el('section', { id: 'tab-pos' }, el('div', { id: 'posTable' })),
+      el('section', { id: 'tab-matchup' }, [ el('div', { id: 'matchupSummary' }), el('div', { class: 'row', style: 'margin-top:8px' }, [ el('div', { id: 'myStarters' }), el('div', { id: 'oppStarters' }) ]) ]),
+      el('section', { id: 'tab-byes' }, el('div', { id: 'byeMatrix' }))
+    ]);
+    lv.append(tabs2, sections2);
   }
-  console.log('[MFA] scaffold ensured');
+
+  console.log('[MFA] scaffold ensured (children)', {
+    asideKids: aside?.children.length || 0,
+    controlsKids: controls?.children.length || 0,
+    userSummaryKids: us?.children.length || 0,
+    leagueViewsKids: lv?.children.length || 0
+  });
 }
 
 function init() {
-  ensureScaffold();  // <--- add this line first
+  ensureScaffold();
   // start on landing; app hidden
   $('#appLayout').classList.add('hidden');
   $('#landing').classList.remove('hidden');
-  // prepare week options
-  const wk = $('#weekSelect'); if (wk && !wk.children.length) {
-    for (let w = 1; w <= 18; w++) {
-      const o = el('option', { value: String(w), html: 'Week ' + w }); if (w === 1) o.selected = true; wk.append(o);
-    }
-  }
+  // week options
+  setWeekOptions();
   wireEvents();
   console.log('[MFA] ready');
 }
 
 window.addEventListener('DOMContentLoaded', init);
-
