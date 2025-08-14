@@ -22,8 +22,8 @@
 
   .inputs{display:grid;grid-template-columns:1fr 130px;gap:8px}
   .inputs > div{min-width:0}
-  label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600} /* fixed var() */
-  input,select,button{background:#0e1630;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px} /* fixed var() */
+  label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600}
+  input,select,button{background:#0e1630;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
   input,select{width:100%}
   #username{font-size:16px}
   button{cursor:pointer;transition:.2s;white-space:nowrap}
@@ -38,12 +38,10 @@
   .li-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
   .li-sub{font-size:12px;color:#8fa1ff99;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
 
-  /* Left pane footer link */
   .sidebar-connect{ text-align:center; margin:16px auto 6px; font-size:13px }
   .sidebar-connect a{ color:#8fa1ff99; text-decoration:none }
   .sidebar-connect a:hover{ text-decoration:underline }
 
-  /* Alert badge in left list */
   .alert-badge{
     background:#e23b3b; color:#fff; min-width:22px; height:22px; padding:0 6px;
     border-radius:999px; display:inline-flex; align-items:center; justify-content:center;
@@ -51,7 +49,6 @@
   }
   .alert-badge.hidden{display:none}
 
-  /* Controls: put Season/Week on the left */
   .controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:flex-start}
   .controls .group{min-width:160px}
   .controls .group.right{margin-left:auto;min-width:260px}
@@ -59,7 +56,6 @@
   .tabs{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
   .tab-btn{padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1630; position:relative}
   .tab-btn.active{outline:2px solid var(--accent);color:#000;background:linear-gradient(90deg,var(--accent),var(--accent2))}
-  /* Red dot on Alerts tab */
   .tab-btn .dot{ position:absolute; top:6px; right:6px; width:8px; height:8px; background:#e23b3b; border-radius:999px; box-shadow:0 0 0 2px #0e1630; display:none }
   .tab-btn.has-alert .dot{ display:block }
 
@@ -82,7 +78,6 @@
 
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
 
-  /* landing */
   .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
            background:linear-gradient(180deg,#0b1020,#0a0f1f 60%); z-index:9999;}
   .landing-card{display:flex; flex-direction:column; align-items:center; gap:18px; max-width:720px; text-align:center}
@@ -95,7 +90,6 @@
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
 
-  /* keep this LAST so it wins the cascade over `.landing` */
   .hidden{display:none}
 </style>
 </head>
@@ -182,7 +176,6 @@
 
   <div class="main">
     <div class="controls">
-      <!-- DROPDOWNS LEFT -->
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
         <select id="seasonMain">
@@ -254,7 +247,6 @@
   </div>
 </div>
 
-<!-- App -->
 <script src="app.js" defer></script>
 </body>
 </html>
