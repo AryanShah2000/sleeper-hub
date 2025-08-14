@@ -1,5 +1,5 @@
 // ===== App state =====
-let g = { players: null, userId: null, leagues: {}, selected: null, mode: 'summary' };
+let g = { players: null, userId: null, leagues: {}, selected: null, mode: 'summary', waiverPref: null };
 
 // ===== Tiny DOM helpers + cache =====
 const $ = (s) => document.querySelector(s);
@@ -91,15 +91,14 @@ async function providerRows(season, week, season_type) {
 }
 function rescored(pid, rowsByPid, players, scoring) {
   const meta = players[pid] || {};
-  const pos = (meta.position || 'UNK').toUpperCase();
-  const row = rowsByPid[pid];
+  let pos = (meta.position || 'UNK').toUpperCase();
+  if (pos === 'D/ST' || pos === 'DST') pos = 'DEF';
 
-  // Positions scored natively by provider
+  const row = rowsByPid[pid];
   if (pos === 'K' || pos === 'DEF') {
     return row ? feedPPR(row) : 0;
   }
 
-  // Offensive positions: rescore using league settings
   const st = (row || {}).stats || {};
   const v = (k) => +((st?.[k]) || 0);
   const sc = scoring || {};
@@ -142,7 +141,6 @@ function teamPosValues(league, rows) {
   const rp = (league.roster_positions||[]).map((x)=>String(x).toUpperCase());
   const count = (slot) => rp.filter(x=>x===slot).length;
 
-  // Build PURE set dynamically from what this league actually uses
   const PURE_KEYS = ['QB','RB','WR','TE','K','DEF'].filter(k => count(k)>0);
   const PURE = Object.fromEntries(PURE_KEYS.map(k => [k, count(k)]));
 
@@ -157,7 +155,7 @@ function teamPosValues(league, rows) {
   if (FLEX){ const { picks, remaining: rem } = selectBest(remaining, new Set(['RB','WR','TE']), FLEX); remaining=rem; values.FLEX=picks.reduce((s,p)=>s+p.proj,0);} else values.FLEX=undefined;
   if (SFLEX){ const { picks, remaining: rem } = selectBest(remaining, new Set(['QB','RB','WR','TE','K','DEF']), SFLEX); remaining=rem; values.SUPER_FLEX=picks.reduce((s,p)=>s+p.proj,0);} else values.SUPER_FLEX=undefined;
 
-  return values; // keys present only when used
+  return values;
 }
 function rankPct(vals, mine){ const sv=[...vals].sort((a,b)=>b-a); const rank=sv.indexOf(mine)+1; const n=sv.length; const below=sv.filter(v=>v<mine).length; return {rank, out_of:n, pct:Math.round(1000*below/n)/10}; }
 function parseBD(meta){ for (const k of ['birth_date','birthdate','birthDate']){ const raw=meta?.[k]; if(!raw) continue; const d=new Date(String(raw).slice(0,10)); if(!isNaN(d)) return d; } return null; }
@@ -230,8 +228,6 @@ async function matchupPreview(leagueId, week, league, users, rosters, players, p
 }
 
 // ===== Bye matrices =====
-
-// Across leagues (user summary)
 function byeMatrixAcrossLeagues(leagues, userId, players, season, weeks = Array.from({length:18},(_,i)=>i+1)){
   const rows = [];
   for (const { league, rosters } of Object.values(leagues)) {
@@ -257,10 +253,9 @@ function renderByeAcrossLeagues(container, data){
   renderSortableTable(container, headers, rows, types);
 }
 
-// Per-league (by position groups in that league)
 function activeLeaguePositions(league){
   const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
-  const base = ['QB','RB','WR','TE','K','DEF']; // extend if needed
+  const base = ['QB','RB','WR','TE','K','DEF'];
   return base.filter(p => rp.includes(p));
 }
 function byeMatrixByPosition(roster, players, season, league, weeks = Array.from({length:18},(_,i)=>i+1)){
@@ -377,17 +372,16 @@ async function renderUserSummary(){
       rowsAgainst, ['str','str','str','num','num']);
   }
 
-  // Projections: arrow ONLY on the higher score (no arrow on ties)
+  // Projections (arrow only on higher score)
   $('#usProjTable').innerHTML = '<div class="note">Calculating projections…</div>';
   const projRows = await userSummaryProjections(g.leagues, g.players, week);
   renderTable($('#usProjTable'), ['League','My Proj','Opp Proj','Opponent'], projRows);
 
-  // Full-season bye matrix (cross-league)
+  // Cross-league season bye matrix
   const matrixData = byeMatrixAcrossLeagues(g.leagues, g.userId, g.players, seasonSel);
   renderByeAcrossLeagues($('#usByeMatrix'), matrixData);
 }
 
-// ===== User summary: projections =====
 async function userSummaryProjections(leagues, players, week){
   const rows=[];
   await Promise.all(Object.values(leagues).map(async (entry)=>{
@@ -405,7 +399,6 @@ async function userSummaryProjections(leagues, players, week){
 
     rows.push([league.name, myCell, oppCell, prev.opponent.team_name||'—']);
   }));
-  // Sort by my projected points (numeric)
   rows.sort((a,b)=>parseFloat(b[1]) - parseFloat(a[1]));
   return rows;
 }
@@ -449,9 +442,8 @@ function renderAlerts(container, { flagged, candidatesByPid, week }){
   }
 
   flagged.forEach(p => {
-    // Collapsible <details> for cleaner view
     const d = el('details', { class: 'alert-item' });
-    const summary = el('summary', { html: `⚠️ <b>${p.name}</b> — ${p.pos} (${p.team}) • 0.00 pts` });
+    const summary = el('summary', { html: `⚠️ <b>${p.name}</b> — ${p.pos} (${p.team}) • 0.00 pts &nbsp; <a href="#" class="waiver-link" data-pos="${p.pos}">Find waiver alternatives</a>` });
     d.append(summary);
 
     const cands = candidatesByPid[p.pid] || [];
@@ -479,12 +471,133 @@ function rosterPositionsSummary(league){
   return all.map(k => `${k.replace('_',' ')}×${counts[k]}`).join(' • ');
 }
 
+// ===== Waiver Wire =====
+async function loadTrendingAddsMap(){
+  // last 24h, up to 300 players
+  let data = [];
+  try {
+    data = await fetchJSON(`https://api.sleeper.app/v1/players/nfl/trending/add?lookback_hours=24&limit=300`);
+  } catch {}
+  const m = new Map();
+  if (Array.isArray(data)) {
+    for (const it of data) {
+      const pid = String(it?.player_id ?? it?.player ?? '');
+      const ct  = +it?.count || 0;
+      if (pid) m.set(pid, ct);
+    }
+  }
+  return m; // Map<pid, addsCount>
+}
+
+function getRosteredPidSet(rosters){
+  const set = new Set();
+  for (const r of rosters || []) {
+    for (const pid of (r.players || [])) set.add(String(pid));
+    for (const pid of (r.starters || [])) if (pid !== '0') set.add(String(pid));
+    for (const pid of (r.taxi || [])) set.add(String(pid));
+  }
+  return set;
+}
+
+function leagueAllowedPositions(league){
+  return activeLeaguePositions(league); // ['QB','RB','WR','TE','K','DEF'] filtered by league
+}
+
+function openLeagueTab(tabId){
+  const btn = document.querySelector(`#leagueTabs .tab-btn[data-tab="${tabId}"]`);
+  if (btn){
+    document.querySelectorAll('#leagueTabs .tab-btn').forEach(x=>x.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  document.querySelectorAll('#leagueSections > section').forEach(s=>s.classList.toggle('active', s.id===tabId));
+}
+
+async function renderWaiverWire(league, rosters, season, week, scoring, preferredPos){
+  const note = $('#waiverNote');
+  const tableC = $('#waiverTable');
+  const posSel = $('#waiverPos');
+
+  note.textContent = `Week ${week} • ${league.name} scoring`;
+  tableC.innerHTML = '';
+
+  // Projections for week/league already computed in renderSelectedLeague and passed via scoring.
+  const proj = await projByPid(season, week, 'regular', g.players, scoring);
+  const trendMap = await loadTrendingAddsMap();
+
+  const rostered = getRosteredPidSet(rosters);
+  const allowed = leagueAllowedPositions(league);
+  const choices = ['ALL', ...allowed];
+
+  // (Re)build position select
+  posSel.innerHTML = '';
+  for (const opt of choices){
+    const o = el('option', { value: opt, html: opt.replace('_',' ') });
+    if (preferredPos && opt === preferredPos) o.selected = true;
+    posSel.append(o);
+  }
+
+  // Candidate pool: only those with a projection row (fast) and not rostered in this league
+  const items = [];
+  for (const pid of Object.keys(proj)) {
+    if (rostered.has(String(pid))) continue;
+    const m = g.players[pid]; if (!m) continue;
+    let pos = (m.position || 'UNK').toUpperCase();
+    if (pos === 'D/ST' || pos === 'DST') pos = 'DEF';
+    if (!allowed.includes(pos)) continue;
+
+    let bye = teamBye(m.team, season);
+    if (!(Number.isInteger(bye)&&bye>=1&&bye<=18)) bye = Number.isInteger(m.bye_week) ? m.bye_week : null;
+
+    const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
+    const projVal = +proj[String(pid)] || 0;
+    const trend = trendMap.get(String(pid)) || 0;
+
+    items.push({
+      pid: String(pid),
+      name,
+      pos,
+      team: m.team || 'FA',
+      proj: projVal,
+      trend,
+      bye
+    });
+  }
+
+  function draw(selectedPos){
+    const filtered = items
+      .filter(it => selectedPos === 'ALL' || it.pos === selectedPos)
+      .sort((a,b)=> b.proj - a.proj || b.trend - a.trend || a.name.localeCompare(b.name))
+      .slice(0, 50); // keep it tight
+
+    if (filtered.length === 0) {
+      tableC.innerHTML = '<div class="note">No available players match this filter.</div>';
+      return;
+    }
+
+    const rows = filtered.map(p => [
+      p.name,
+      p.pos,
+      p.team,
+      p.proj.toFixed(2),
+      p.trend,
+      Number.isInteger(p.bye) ? ('W'+p.bye) : '—'
+    ]);
+
+    renderSortableTable(tableC,
+      ['Player','Pos','Team','Proj (W'+week+')','Trend (adds/24h)','Bye'],
+      rows, ['str','str','str','num','num','bye']);
+  }
+
+  draw(posSel.value || choices[0]);
+  posSel.onchange = () => draw(posSel.value);
+}
+
 // ===== UI utilities =====
 function setWeekOptions(){ const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o);} }
 function showControls(){ $('#seasonGroup').classList.remove('hidden'); $('#weekGroup').classList.remove('hidden'); }
 function resetMain(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
-  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#alertsView','#usRootForTable','#usRootAgainstTable','#usProjTable','#usByeMatrix'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
+  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#alertsView','#usRootForTable','#usRootAgainstTable','#usProjTable','#usByeMatrix','#waiverTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
 }
 function renderLeagueList(active=null){
   const list=$('#leagueList'); list.innerHTML=''; const ids=Object.keys(g.leagues);
@@ -523,21 +636,19 @@ async function renderSelectedLeague(){
   $('#contextNote').textContent = `${league.name} • ${league.season}`;
   $('#posNote').textContent = `Roster slots: ${rosterPositionsSummary(league)}`;
 
+  // Roster table
   renderRoster($('#rosterTable'), myRoster, g.players, season);
 
-  const scoring=league.scoring_settings||{}; const proj=await projByPid(season, week, 'regular', g.players, scoring);
+  // Projections for this league/week
+  const scoring=league.scoring_settings||{}; 
+  const proj=await projByPid(season, week, 'regular', g.players, scoring);
   const projFn=(pid)=>proj[String(pid)]||0;
 
-  // === Team projections with dynamic positions ===
+  // Team projections (dynamic positions)
   const vals=rosters.reduce((acc,r)=>{ acc[r.roster_id]=teamPosValues(league, rosterRows(r,g.players,projFn)); return acc; },{});
-  const mine=vals[myRoster.roster_id];
-
-  // Determine which keys to show based on league
   const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
   const orderPure = ['QB','RB','WR','TE','K','DEF'].filter(k => rp.includes(k));
-  const orderFlex = [];
-  if (rp.includes('FLEX')) orderFlex.push('FLEX');
-  if (rp.includes('SUPER_FLEX')) orderFlex.push('SUPER_FLEX');
+  const orderFlex = []; if (rp.includes('FLEX')) orderFlex.push('FLEX'); if (rp.includes('SUPER_FLEX')) orderFlex.push('SUPER_FLEX');
   const order = [...orderPure, ...orderFlex];
 
   const posStats={};
@@ -554,11 +665,11 @@ async function renderSelectedLeague(){
   const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
   renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
 
-  // === League-specific Bye Matrix (by position groups in this league) ===
+  // League-specific Bye Matrix (by position groups)
   const byeData = byeMatrixByPosition(myRoster, g.players, season, league);
   renderByePositions($('#byeMatrix'), byeData);
 
-  // Alerts tab content + red dot if any
+  // Alerts content + badge on tab
   const startersSet = new Set(prev.myStart.map(p => p.pid));
   const allMyRows = rosterRows(myRoster, g.players, projFn);
   const flagged = prev.myStart.filter(p => (p.proj || 0) === 0);
@@ -575,6 +686,10 @@ async function renderSelectedLeague(){
   if (alertBtn) {
     if (flagged.length > 0) alertBtn.classList.add('has-alert'); else alertBtn.classList.remove('has-alert');
   }
+
+  // Waiver Wire render (use any preferred pos jump from Alerts)
+  await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
+  g.waiverPref = null; // consume one-shot preference
 
   $('#userSummary').classList.add('hidden');
   $('#leagueViews').classList.remove('hidden');
@@ -657,14 +772,49 @@ function wireEvents(){
     catch(e){ console.error(e); status('err','Could not add that League ID.'); }
   });
 
-  // Tabs (league + user summary)
-  document.addEventListener('click', (e)=>{
+  // Tabs (league + user summary) + waiver jump
+  document.addEventListener('click', async (e)=>{
     const btn1=e.target.closest('#leagueTabs .tab-btn');
-    if(btn1){ document.querySelectorAll('#leagueTabs .tab-btn').forEach(x=>x.classList.remove('active')); btn1.classList.add('active');
-      const id=btn1.dataset.tab; document.querySelectorAll('#leagueSections > section').forEach(s=>s.classList.toggle('active', s.id===id)); return; }
+    if(btn1){
+      document.querySelectorAll('#leagueTabs .tab-btn').forEach(x=>x.classList.remove('active'));
+      btn1.classList.add('active');
+      const id=btn1.dataset.tab;
+      document.querySelectorAll('#leagueSections > section').forEach(s=>s.classList.toggle('active', s.id===id));
+
+      // If switching to Waiver Wire, refresh it (uses current week & scoring)
+      if (id === 'tab-waivers' && g.mode==='league' && g.selected){
+        const { league, rosters } = g.leagues[g.selected];
+        const season=+league.season; const week=+($('#weekSelect').value||1);
+        const scoring=league.scoring_settings||{};
+        await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
+        g.waiverPref = null;
+      }
+      return;
+    }
+
     const btn2=e.target.closest('#usTabs .tab-btn');
-    if(btn2){ document.querySelectorAll('#usTabs .tab-btn').forEach(x=>x.classList.remove('active')); btn2.classList.add('active');
-      const id=btn2.dataset.tab; document.querySelectorAll('#userSummary .sections > section').forEach(s=>s.classList.toggle('active', s.id===id)); return; }
+    if(btn2){
+      document.querySelectorAll('#usTabs .tab-btn').forEach(x=>x.classList.remove('active'));
+      btn2.classList.add('active');
+      const id=btn2.dataset.tab; document.querySelectorAll('#userSummary .sections > section').forEach(s=>s.classList.toggle('active', s.id===id));
+      return;
+    }
+
+    // Alerts -> Waiver jump
+    const wlink = e.target.closest('.waiver-link');
+    if (wlink) {
+      e.preventDefault();
+      g.waiverPref = wlink.getAttribute('data-pos') || null;
+      openLeagueTab('tab-waivers');
+      // Re-render immediately
+      if (g.mode==='league' && g.selected){
+        const { league, rosters } = g.leagues[g.selected];
+        const season=+league.season; const week=+($('#weekSelect').value||1);
+        const scoring=league.scoring_settings||{};
+        await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
+        g.waiverPref = null;
+      }
+    }
   });
 
   // Landing
