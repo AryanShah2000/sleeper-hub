@@ -15,7 +15,6 @@
   .layout{max-width:1280px;margin:16px auto;padding:0 16px;display:grid;grid-template-columns:360px 1fr;gap:16px}
   aside{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:72vh;display:flex;flex-direction:column}
   .main{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column}
-  
 
   .status{margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#0e1734;color:#bcd;font-size:13px}
   .status.ok{color:#9ff3c8;border-color:#2a5}
@@ -58,7 +57,11 @@
   th.sorted-asc .arrow, th.sorted-desc .arrow{opacity:1; color:var(--accent)}
 
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
+  .subhead{margin:8px 0 6px;font-size:13px;color:#8fa1ffcc;text-transform:uppercase;letter-spacing:.08em}
+
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
+  .footer-mini a{color:#8fa1ff99;text-decoration:none}
+  .footer-mini a:hover{text-decoration:underline}
 
   /* landing */
   .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
@@ -66,12 +69,14 @@
   .landing-card{display:flex; flex-direction:column; align-items:center; gap:18px; max-width:720px; text-align:center}
   .landing .bot svg{width:160px;height:160px;filter:drop-shadow(0 8px 24px rgba(0,0,0,.35))}
   .football{position:absolute; top:110px; animation:spin 3.5s linear infinite; opacity:.9}
-  @keyframes spin { from{ transform:rotate(0deg) translateY(0); } to{ transform:rotate(360deg) translateY(0); } }
+  @keyframes spin { from{ transform:rotate(0deg) } to{ transform:rotate(360deg) } }
   .bubble{background:#0e1734; border:1px solid var(--border); border-radius:14px; padding:16px 18px; color:#c9d3ffcc}
   .bubble .hi{font-weight:800; color:#e8ecff; margin-bottom:6px}
   .landing .entry{display:flex; gap:8px; width:min(560px,90vw)}
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
+
+  /* keep this LAST so it wins the cascade over `.landing` */
   .hidden{display:none}
 </style>
 </head>
@@ -115,6 +120,7 @@
       <button id="landingGo" disabled>Continue</button>
     </div>
     <div class="muted-mini">We’ll fetch your leagues once you continue.</div>
+    <div class="muted-mini footer-mini"> <a href="https://www.linkedin.com/in/aryan-shah/" target="_blank" rel="noopener">Meet the creator</a> </div>
   </div>
 </div>
 
@@ -154,7 +160,6 @@
     <div class="controls">
       <div class="group" style="min-width:260px">
         <div class="note" id="contextNote"></div>
-        <div id="debug" class="note"></div>
       </div>
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
@@ -172,12 +177,18 @@
     <!-- USER SUMMARY -->
     <div id="userSummary" class="hidden">
       <div class="tabs" id="usTabs">
-        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
+        <button class="tab-btn active" data-tab="us-root">Rooting Interest</button>
         <button class="tab-btn" data-tab="us-proj">Projections</button>
         <button class="tab-btn" data-tab="us-byes">Bye Count</button>
       </div>
       <div class="sections">
-        <section id="us-root" class="active"><div id="usRootTable"></div></section>
+        <section id="us-root" class="active">
+          <h3 class="subhead">Who to Root For</h3>
+          <div id="usRootForTable"></div>
+
+          <h3 class="subhead" style="margin-top:14px;">Who to Root Against</h3>
+          <div id="usRootAgainstTable"></div>
+        </section>
         <section id="us-proj"><div id="usProjTable"></div></section>
         <section id="us-byes"><div id="usByeTable"></div></section>
       </div>
@@ -205,11 +216,16 @@
       </div>
     </div>
 
-    <footer>Uses public Sleeper API + Rotowire projections via Sleeper. Data cached for ~3h in localStorage.</footer>
+    <footer>
+      Uses public Sleeper API + Rotowire projections via Sleeper. Data cached for ~3h in localStorage.
+      <div class="footer-mini" style="margin-top:6px">
+        <a href="https://www.linkedin.com/in/aryan-shah/" target="_blank" rel="noopener">Meet the creator</a>
+      </div>
+    </footer>
   </div>
 </div>
 
+<!-- App -->
 <script src="app.js" defer></script>
 </body>
 </html>
-
