@@ -39,6 +39,88 @@ function renderStatus(kind, msg) {
   debug(msg);
 }
 
+// ===== Safety net: ensure required markup exists =====
+function ensureScaffold() {
+  // Sidebar list exists?
+  const aside = document.querySelector('#appLayout aside');
+  if (aside && !aside.querySelector('#leagueList')) {
+    aside.innerHTML = `
+      <div id="status" class="status">Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.</div>
+      <div class="inputs">
+        <div><label for="username">Sleeper Username</label><input id="username" placeholder="" /></div>
+        <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end"><button id="viewLeaguesBtn" disabled>View Leagues</button></div>
+      </div>
+      <div class="row-2"><input id="manualLeagueId" placeholder="League ID (optional)" /><button id="addLeagueBtn" disabled>Add</button></div>
+      <div class="nav-head">Overview</div>
+      <div id="summaryItem" class="summary-item hidden"><div><div class="li-title">User Summary</div><div class="li-sub">Cross-league view</div></div></div>
+      <div class="nav-head">Your Leagues</div>
+      <div id="leagueList" class="league-list"></div>
+    `;
+  }
+
+  // Controls (season/week)
+  const controls = document.querySelector('.main .controls');
+  if (controls && !controls.querySelector('#weekSelect')) {
+    controls.innerHTML = `
+      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
+      <div class="group hidden" id="seasonGroup">
+        <label for="seasonMain">Season</label>
+        <select id="seasonMain">
+          <option value="2025" selected>2025</option>
+          <option value="2024">2024</option>
+        </select>
+      </div>
+      <div class="group hidden" id="weekGroup">
+        <label for="weekSelect">Week</label>
+        <select id="weekSelect"></select>
+      </div>
+    `;
+  }
+
+  // User Summary tabs/sections
+  const us = document.getElementById('userSummary');
+  if (us && !us.querySelector('#usTabs')) {
+    us.innerHTML = `
+      <div class="tabs" id="usTabs">
+        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
+        <button class="tab-btn" data-tab="us-proj">Projections</button>
+        <button class="tab-btn" data-tab="us-byes">Bye Count</button>
+      </div>
+      <div class="sections">
+        <section id="us-root" class="active"><div id="usRootTable"></div></section>
+        <section id="us-proj"><div id="usProjTable"></div></section>
+        <section id="us-byes"><div id="usByeTable"></div></section>
+      </div>
+    `;
+  }
+
+  // League views tabs/sections
+  const lv = document.getElementById('leagueViews');
+  if (lv && !lv.querySelector('#leagueTabs')) {
+    lv.innerHTML = `
+      <div class="tabs" id="leagueTabs">
+        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
+        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
+        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
+        <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
+      </div>
+      <div class="sections" id="leagueSections">
+        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
+        <section id="tab-pos"><div id="posTable"></div></section>
+        <section id="tab-matchup">
+          <div id="matchupSummary"></div>
+          <div class="row" style="margin-top:8px">
+            <div id="myStarters"></div>
+            <div id="oppStarters"></div>
+          </div>
+        </section>
+        <section id="tab-byes"><div id="byeMatrix"></div></section>
+      </div>
+    `;
+  }
+  console.log('[MFA] scaffold ensured (children)', { us: !!us?.children?.length, lv: !!lv?.children?.length });
+}
+
 // ===== Sleeper fetches =====
 async function resolveUserId(usernameOrId) {
   try {
@@ -63,7 +145,7 @@ async function loadPlayersMap() {
 // ===== Projections (Rotowire) =====
 const PROVIDER = 'rotowire';
 function feedPPR(it) {
-  const ks = ['ppr', 'pts_ppr', 'fantasy_points_ppr'];
+  const ks = ['ppr','pts_ppr','fantasy_points_ppr'];
   for (const k of ks) if (it?.[k] != null) return +it[k] || 0;
   const s = it?.stats || {};
   for (const k of ks) if (s?.[k] != null) return +s[k] || 0;
@@ -136,7 +218,7 @@ function teamPosValues(league, rows) {
     values[pos] = picks.reduce((s, p) => s + p.proj, 0);
   }
   if (FLEX) {
-    const { picks, remaining: rem } = selectBest(remaining, new Set(['RB', 'WR', 'TE']), FLEX);
+    const { picks, remaining: rem } = selectBest(remaining, new Set(['RB','WR','TE']), FLEX);
     remaining = rem;
     values.FLEX = picks.reduce((s, p) => s + p.proj, 0);
   } else values.FLEX = 0;
@@ -320,7 +402,6 @@ async function renderUserSummary() {
     $('#userSummary').classList.remove('hidden');
     $('#contextNote').textContent = '';
 
-    // safe reads for week/season
     const wkEl = $('#weekSelect'); const week = wkEl ? +wkEl.value : 1;
     const seasonEl = $('#seasonMain'); const seasonSel = seasonEl ? +seasonEl.value : 2025;
 
@@ -359,6 +440,7 @@ function resetMain(){
 function renderLeagueList(active=null){
   const list = $('#leagueList'); list.innerHTML='';
   const ids = Object.keys(g.leagues);
+  debug(`renderLeagueList: ${ids.length} leagues`);
   if (ids.length===0){ list.append(el('div',{class:'li-sub', html:'No leagues loaded yet.'})); return; }
   ids.forEach((id)=>{
     const { league, users, rosters } = g.leagues[id];
@@ -419,6 +501,7 @@ async function loadForUsername(uname){
   debug(`Looking up your leagues…`);
   resetMain();
   try{
+    ensureScaffold();      // <— make sure containers exist
     if (!g.players) g.players = await loadPlayersMap();
     const uid = await resolveUserId(uname);
     if (!uid){ renderStatus('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
@@ -517,7 +600,7 @@ function wireEvents(){
 }
 
 function init(){
-  // show landing; app hidden
+  ensureScaffold();          // <— make sure UI containers exist
   $('#appLayout').classList.add('hidden');
   $('#landing').classList.remove('hidden');
   setWeekOptions();
