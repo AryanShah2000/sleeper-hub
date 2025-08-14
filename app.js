@@ -204,23 +204,40 @@ async function matchupPreview(leagueId, week, league, users, rosters, players, p
   const myStart = startersProj(myRid); const oppStart = oppRid ? startersProj(oppRid) : [];
   return { week, me:{ team_name:myTeam, projected_total:+myStart.reduce((s,p)=>s+p.proj,0).toFixed(2) }, opponent:{ team_name:teamName(oppRid), projected_total:+oppStart.reduce((s,p)=>s+p.proj,0).toFixed(2) }, myStart, oppStart };
 }
-function byeMatrix(roster, players, season, weeks=[5,6,7,8,9,10,11,12,13,14]){
-  const pids=rosterPids(roster); const set=new Set(), m={};
-  for (const pid of pids){ const pl=players[pid]||{}; const pos=(pl.position||'UNK').toUpperCase(); set.add(pos);
-    let b=teamBye(pl.team,season); if(!(Number.isInteger(b)&&b>=1&&b<=18)) b=Number.isInteger(pl.bye_week)?pl.bye_week:null;
-    if(!m[pos]) m[pos]=Object.fromEntries(weeks.map(w=>[w,0])); if(Number.isInteger(b)&&weeks.includes(b)) m[pos][b]++; }
-  const order=['QB','RB','WR','TE', ...[...set].filter(p=>!['QB','RB','WR','TE'].includes(p)).sort()];
-  return { order, weeks, matrix:m };
+
+// ===== Bye matrix (per-league positions — old) kept for reference =====
+// function renderBye(container, {order,weeks,matrix}){ ... }
+
+// ===== NEW: Cross-league bye matrix =====
+function byeMatrixAcrossLeagues(leagues, userId, players, season, weeks = Array.from({length:18},(_,i)=>i+1)){
+  const rows = [];
+  for (const { league, rosters } of Object.values(leagues)) {
+    const my = rosters.find(r => r.owner_id === userId);
+    if (!my) continue;
+
+    // Count rostered players (not just starters) that have a bye in each week
+    const counts = weeks.map(() => 0);
+    for (const pid of rosterPids(my)) {
+      const meta = players[pid] || {};
+      let b = teamBye(meta.team, season);
+      if (!(Number.isInteger(b) && b >= 1 && b <= 18)) b = Number.isInteger(meta.bye_week) ? meta.bye_week : null;
+      if (Number.isInteger(b) && b >= 1 && b <= 18) counts[b - 1] += 1;
+    }
+    const total = counts.reduce((s, c) => s + c, 0);
+    rows.push({ leagueName: league.name, counts, total });
+  }
+  // Sort by total desc for convenience
+  rows.sort((a,b)=>b.total - a.total || a.leagueName.localeCompare(b.leagueName));
+  return { weeks, rows };
 }
-function renderBye(container, {order,weeks,matrix}){
-  const headers=['Pos',...weeks.map(w=>'W'+w),'Total']; const rows=[]; let col=Array(weeks.length).fill(0);
-  for (const pos of order){ const counts=weeks.map((w,i)=>{ const v=(matrix[pos]||{})[w]||0; col[i]+=v; return v; }); rows.push([pos,...counts, counts.reduce((s,c)=>s+c,0)]); }
-  rows.push(['TOTAL',...col, col.reduce((s,c)=>s+c,0)]); renderTable(container, headers, rows);
+function renderByeAcrossLeagues(container, data){
+  const headers = ['League', ...data.weeks.map(w => 'W' + w), 'Total'];
+  const rows = data.rows.map(r => [r.leagueName, ...r.counts, r.total]);
+  const types = ['str', ...data.weeks.map(()=> 'num'), 'num'];
+  renderSortableTable(container, headers, rows, types);
 }
 
 // ===== User summary: exposures =====
-
-// Count how many leagues you roster each player in
 function ownedExposuresAcrossLeagues(leagues, userId) {
   const counter = new Map();
   for (const { rosters } of Object.values(leagues)) {
@@ -230,10 +247,8 @@ function ownedExposuresAcrossLeagues(leagues, userId) {
     pids.delete('0');
     for (const pid of pids) counter.set(pid, (counter.get(pid) || 0) + 1);
   }
-  return counter; // Map<pid, haveCount>
+  return counter;
 }
-
-// Count how many leagues your weekly OPPONENT is starting each player in
 async function opponentExposuresAcrossLeagues(leagues, userId, week) {
   const counter = new Map();
 
@@ -266,7 +281,7 @@ async function opponentExposuresAcrossLeagues(leagues, userId, week) {
     for (const pid of starters) counter.set(pid, (counter.get(pid) || 0) + 1);
   }));
 
-  return counter; // Map<pid, vsCount>
+  return counter;
 }
 
 async function renderUserSummary(){
@@ -275,13 +290,13 @@ async function renderUserSummary(){
   const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
 
   // Build "for" and "against" exposures
-  const haveMap = ownedExposuresAcrossLeagues(g.leagues, g.userId);                  // Map<pid, haveCount>
-  const vsMap   = await opponentExposuresAcrossLeagues(g.leagues, g.userId, week);  // Map<pid, vsCount>
+  const haveMap = ownedExposuresAcrossLeagues(g.leagues, g.userId);
+  const vsMap   = await opponentExposuresAcrossLeagues(g.leagues, g.userId, week);
 
-  // Who to Root For: only players with haveCount >= 2
+  // Who to Root For: threshold 2
   const rowsFor = [];
   for (const [pid, haveCount] of haveMap.entries()) {
-    if (haveCount < 2) continue; // threshold
+    if (haveCount < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const pos = (m.position || 'UNK').toUpperCase();
@@ -298,10 +313,10 @@ async function renderUserSummary(){
       rowsFor, ['str','str','str','num','num']);
   }
 
-  // Who to Root Against: only players with vsCount >= 2
+  // Who to Root Against: threshold 2
   const rowsAgainst = [];
   for (const [pid, vsCount] of vsMap.entries()) {
-    if (vsCount < 2) continue; // threshold
+    if (vsCount < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const pos = (m.position || 'UNK').toUpperCase();
@@ -323,7 +338,7 @@ async function renderUserSummary(){
   const projRows=await userSummaryProjections(g.leagues, g.players, week);
   renderTable($('#usProjTable'), ['League','My Proj','Opponent','Opp Proj'], projRows);
 
-  // Bye Count
+  // Bye Count (single week)
   const byeRows=userSummaryByeCount(g.leagues, g.players, seasonSel, week).map(r=>[r[0],r[1]]);
   renderTable($('#usByeTable'), ['League', 'Players on Bye (W'+week+')'], byeRows);
 }
@@ -344,6 +359,38 @@ function userSummaryByeCount(leagues, players, season, week){
     rows.push([league.name, total]); } rows.sort((a,b)=>b[1]-a[1]); return rows;
 }
 
+// ===== Alerts (red badge): starters with 0 projected points =====
+async function computeLeagueAlertCount(entry, week, players){
+  const { league, users, rosters } = entry;
+  const myRoster = rosters.find(r => r.owner_id === g.userId);
+  if (!myRoster) return 0;
+  const season = +league.season;
+  const scoring = league.scoring_settings || {};
+  // projections (cached per season/week source)
+  const proj = await projByPid(season, week, 'regular', players, scoring);
+  const projFn = (pid) => proj[String(pid)] || 0;
+
+  const myUser = users.find(u => u.user_id === myRoster.owner_id) || {};
+  const myTeamName = (myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster.roster_id}`;
+  const prev = await matchupPreview(league.league_id, week, league, users, rosters, players, projFn, myRoster.roster_id, myTeamName);
+
+  return prev.myStart.filter(x => (x.proj || 0) === 0).length;
+}
+async function updateLeagueAlertBadges(week){
+  const list = $('#leagueList');
+  if (!list) return;
+  const entries = Object.entries(g.leagues);
+  await Promise.all(entries.map(async ([id, entry]) => {
+    let count = 0;
+    try { count = await computeLeagueAlertCount(entry, week, g.players); } catch {}
+    const badge = list.querySelector(`[data-id="${id}"] .alert-badge`);
+    if (badge){
+      if (count > 0){ badge.textContent = String(count); badge.classList.remove('hidden'); }
+      else { badge.textContent = '0'; badge.classList.add('hidden'); }
+    }
+  }));
+}
+
 // ===== UI utilities =====
 function setWeekOptions(){ const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o);} }
 function showControls(){ $('#seasonGroup').classList.remove('hidden'); $('#weekGroup').classList.remove('hidden'); }
@@ -361,10 +408,11 @@ function renderLeagueList(active=null){
     const myTeamName=(myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster?.roster_id ?? ''}`;
     const rec = myRoster ? ' ' + rosterRecord(myRoster) : '';
     const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[
-      el('div',{},[
+      el('div',{class:'li-info'},[
         el('div',{class:'li-title', html: league?.name || `League ${id}`}),
         el('div',{class:'li-sub',   html: (myTeamName || '') + rec })
-      ])
+      ]),
+      el('span',{class:'alert-badge hidden', 'aria-label':'Alerts for this league', title:'Starters with 0 projected points'},'0')
     ]);
     item.addEventListener('click', async ()=>{
       g.mode='league'; g.selected=id;
@@ -395,7 +443,9 @@ async function renderSelectedLeague(){
   const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
   renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
 
-  renderBye($('#byeMatrix'), byeMatrix(myRoster, g.players, season));
+  // NEW: Cross-league bye matrix (whole season, your roster in each league)
+  const matrixData = byeMatrixAcrossLeagues(g.leagues, g.userId, g.players, season);
+  renderByeAcrossLeagues($('#byeMatrix'), matrixData);
 
   $('#userSummary').classList.add('hidden');
   $('#leagueViews').classList.remove('hidden');
@@ -430,6 +480,11 @@ async function loadForUsername(uname){
     await renderUserSummary();
     $('#contextNote').textContent='';
     status('ok', `Loaded ${leagues.length} league(s).`);
+
+    // NEW: compute alert badges for the current week
+    const week=+($('#weekSelect').value||1);
+    await updateLeagueAlertBadges(week);
+
   }catch(err){
     console.error('[MFA] loadForUsername error', err);
     status('err','Failed to load leagues.');
@@ -438,7 +493,12 @@ async function loadForUsername(uname){
 
 // ===== Events & init =====
 function wireEvents(){
-  $('#weekSelect').addEventListener('change', async ()=>{ if(g.mode==='summary') await renderUserSummary(); else await renderSelectedLeague(); });
+  $('#weekSelect').addEventListener('change', async ()=>{
+    const week = +($('#weekSelect').value||1);
+    if(g.mode==='summary') await renderUserSummary(); else await renderSelectedLeague();
+    await updateLeagueAlertBadges(week);
+  });
+
   $('#seasonMain').addEventListener('change', async ()=>{
     if(!g.userId) return; status('', 'Reloading leagues for selected season…');
     try{
@@ -446,6 +506,10 @@ function wireEvents(){
       const leagues=await loadMyLeagues(g.userId, season);
       g.leagues={}; await Promise.all(leagues.map(async L=>{ g.leagues[L.league_id]=await loadLeagueBundle(L.league_id); }));
       status('ok', `Loaded ${leagues.length} league(s).`); renderLeagueList(); g.mode='summary'; $('#summaryItem').classList.add('active'); await renderUserSummary();
+
+      const week = +($('#weekSelect').value||1);
+      await updateLeagueAlertBadges(week);
+
     }catch(e){ console.error(e); status('err','Failed to reload for that season.'); }
   });
 
@@ -458,7 +522,12 @@ function wireEvents(){
   $('#manualLeagueId').addEventListener('input', ()=>{ $('#addLeagueBtn').disabled = !$('#manualLeagueId').value.trim(); });
   $('#addLeagueBtn').addEventListener('click', async ()=>{
     const id=$('#manualLeagueId').value.trim(); if(!id) return;
-    try{ const b=await loadLeagueBundle(id); g.leagues[id]=b; renderLeagueList(g.selected); $('#manualLeagueId').value=''; $('#addLeagueBtn').disabled=true; status('ok','League added. Click it in the list.'); }
+    try{
+      const b=await loadLeagueBundle(id); g.leagues[id]=b; renderLeagueList(g.selected);
+      $('#manualLeagueId').value=''; $('#addLeagueBtn').disabled=true; status('ok','League added. Click it in the list.');
+      const week = +($('#weekSelect').value||1);
+      await updateLeagueAlertBadges(week);
+    }
     catch(e){ console.error(e); status('err','Could not add that League ID.'); }
   });
 
