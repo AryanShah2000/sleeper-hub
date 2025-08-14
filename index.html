@@ -4,6 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>My Fantasy Agent</title>
+
+<!-- Inline favicon to avoid 404s -->
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="%235ee0ff"/><stop offset="1" stop-color="%2384ffb5"/></linearGradient></defs><circle cx="32" cy="8" r="6" fill="url(%23g)"/><rect x="30" y="14" width="4" height="8" rx="2" fill="%235ee0ff"/><rect x="12" y="22" width="40" height="24" rx="8" fill="%230f1a3a" stroke="%232a3a72"/><circle cx="22" cy="34" r="5" fill="%235ee0ff"/><circle cx="42" cy="34" r="5" fill="%235ee0ff"/><rect x="20" y="44" width="24" height="3" rx="1.5" fill="%2324346b"/></svg>'/>
+
 <style>
   :root{ --bg:#0b1020; --panel:#121a35; --muted:#6b7aa6; --text:#e8ecff; --accent:#5ee0ff; --accent2:#84ffb5; --warn:#ffd166; --border: rgba(255,255,255,0.12); }
   *{box-sizing:border-box}
@@ -11,10 +15,12 @@
   header{padding:16px;border-bottom:1px solid var(--border);background:rgba(11,16,32,.9);backdrop-filter:saturate(180%) blur(6px)}
   h1{margin:0;font-size:20px;letter-spacing:.2px;display:flex;align-items:center;gap:10px}
   .logo-bot svg{width:24px;height:24px;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
+
   .layout{max-width:1280px;margin:16px auto;padding:0 16px;display:grid;grid-template-columns:360px 1fr;gap:16px}
   aside{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:72vh;display:flex;flex-direction:column}
   .main{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column}
   .hidden{display:none}
+
   .status{margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#0e1734;color:#bcd;font-size:13px}
   .status.ok{color:#9ff3c8;border-color:#2a5}
   .status.err{color:#ffd1d1;border-color:#a33;background:#2a0e14}
@@ -33,14 +39,17 @@
   .league-item.active, .summary-item.active{outline:2px solid var(--accent)}
   .li-title{font-weight:600}
   .li-sub{font-size:12px;color:#8fa1ff99}
+
   .controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
   .controls .group{min-width:160px}
+
   .tabs{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
   .tab-btn{padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1630}
   .tab-btn.active{outline:2px solid var(--accent);color:#000;background:linear-gradient(90deg,var(--accent),var(--accent2))}
   .sections > section{display:none;margin-top:12px}
   .sections > section.active{display:block}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
   table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px;background:#0b122a;border:1px solid var(--border);border-radius:12px;overflow:hidden}
   th,td{padding:10px;border-bottom:1px solid var(--border)}
   th{background:#10183a;text-align:left;color:#b8c6ff}
@@ -48,8 +57,11 @@
   th.sortable{cursor:pointer; user-select:none; position:relative}
   th.sortable .arrow{font-size:11px; margin-left:6px; opacity:.65}
   th.sorted-asc .arrow, th.sorted-desc .arrow{opacity:1; color:var(--accent)}
+
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
+
+  /* Landing */
   .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px; background:linear-gradient(180deg,#0b1020,#0a0f1f 60%); z-index:9999;}
   .landing-card{display:flex; flex-direction:column; align-items:center; gap:18px; max-width:720px; text-align:center}
   .landing .bot svg{width:160px;height:160px;filter:drop-shadow(0 8px 24px rgba(0,0,0,.35))}
@@ -77,7 +89,7 @@
   </h1>
 </header>
 
-<!-- Landing -->
+<!-- Landing (first screen) -->
 <div id="landing" class="landing">
   <div class="landing-card">
     <div class="bot" aria-hidden="true">
@@ -102,58 +114,17 @@
   </div>
 </div>
 
-<!-- Main app -->
+<!-- Main app (hidden until landing completes) -->
 <div id="appLayout" class="layout hidden">
-  <aside>
-    <div id="status" class="status">Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.</div>
-    <div class="inputs">
-      <div><label for="username">Sleeper Username</label><input id="username" placeholder="" /></div>
-      <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end"><button id="viewLeaguesBtn" disabled>View Leagues</button></div>
-    </div>
-    <div class="row-2"><input id="manualLeagueId" placeholder="League ID (optional)" /><button id="addLeagueBtn" disabled>Add</button></div>
-    <div class="nav-head">Overview</div>
-    <div id="summaryItem" class="summary-item hidden"><div><div class="li-title">User Summary</div><div class="li-sub">Cross-league view</div></div></div>
-    <div class="nav-head">Your Leagues</div>
-    <div id="leagueList" class="league-list"></div>
-  </aside>
-
+  <aside></aside>
   <div class="main">
-    <div class="controls">
-      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
-      <div class="group hidden" id="seasonGroup"><label for="seasonMain">Season</label><select id="seasonMain"><option value="2025" selected>2025</option><option value="2024">2024</option></select></div>
-      <div class="group hidden" id="weekGroup"><label for="weekSelect">Week</label><select id="weekSelect"></select></div>
-    </div>
+    <div class="controls"></div>
 
-    <div id="userSummary" class="hidden">
-      <div class="tabs" id="usTabs">
-        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
-        <button class="tab-btn" data-tab="us-proj">Projections</button>
-        <button class="tab-btn" data-tab="us-byes">Bye Count</button>
-      </div>
-      <div class="sections">
-        <section id="us-root" class="active"><div id="usRootTable"></div></section>
-        <section id="us-proj"><div id="usProjTable"></div></section>
-        <section id="us-byes"><div id="usByeTable"></div></section>
-      </div>
-    </div>
+    <!-- User Summary -->
+    <div id="userSummary" class="hidden"></div>
 
-    <div id="leagueViews" class="hidden">
-      <div class="tabs" id="leagueTabs">
-        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
-        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
-        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
-        <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
-      </div>
-      <div class="sections" id="leagueSections">
-        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
-        <section id="tab-pos"><div id="posTable"></div></section>
-        <section id="tab-matchup">
-          <div id="matchupSummary"></div>
-          <div class="row" style="margin-top:8px"><div id="myStarters"></div><div id="oppStarters"></div></div>
-        </section>
-        <section id="tab-byes"><div id="byeMatrix"></div></section>
-      </div>
-    </div>
+    <!-- League Views -->
+    <div id="leagueViews" class="hidden"></div>
 
     <footer>Uses public Sleeper API + Rotowire projections via Sleeper. Data cached for ~3h in localStorage.</footer>
   </div>
@@ -162,4 +133,3 @@
 <script src="app.js" defer></script>
 </body>
 </html>
-
