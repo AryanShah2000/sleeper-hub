@@ -550,21 +550,86 @@ document.addEventListener('click', (e)=>{
     const id=btn2.dataset.tab; document.querySelectorAll('#userSummary .sections > section').forEach(s=>s.classList.toggle('active', s.id===id)); return; }
 });
 
-/* ===== Landing interactions ===== */
-const landingInput = $('#landingUsername');
-const landingGo = $('#landingGo');
-landingInput.addEventListener('input', ()=>{ landingGo.disabled = !landingInput.value.trim(); });
-landingInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !landingGo.disabled){ landingGo.click(); } });
-landingGo.addEventListener('click', ()=>{
-  const uname = landingInput.value.trim(); if(!uname) return;
-  // move to main UI
-  $('#landing').classList.add('hidden');
-  $('#appLayout').classList.remove('hidden');
-  // prefill sidebar username + enable button
-  $('#username').value = uname;
-  $('#viewLeaguesBtn').disabled = false;
-  // status hint
-  renderStatus('', 'Username set. Choose a season (center) and click "View Leagues" to load.');
+/* ===== Landing interactions (REPLACE THIS BLOCK) ===== */
+const landingInput = document.querySelector('#landingUsername');
+const landingGo    = document.querySelector('#landingGo');
+
+function showApp(){
+  document.getElementById('landing').classList.add('hidden');
+  document.getElementById('appLayout').classList.remove('hidden');
+}
+
+landingInput.addEventListener('input', ()=>{
+  landingGo.disabled = !landingInput.value.trim();
+});
+landingInput.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter' && !landingGo.disabled) landingGo.click();
+});
+
+landingGo.addEventListener('click', async ()=>{
+  const uname = landingInput.value.trim();
+  if(!uname) return;
+
+  // Reveal the main app immediately
+  showApp();
+
+  // Pre-fill sidebar + show loading message
+  document.querySelector('#username').value = uname;
+  document.querySelector('#viewLeaguesBtn').disabled = false;
+  const renderStatus = (kind,msg)=>{
+    const s=document.querySelector('#status');
+    s.className='status '+(kind||'');
+    s.innerHTML=msg;
+  };
+  renderStatus('', 'Looking up your leagues…');
+
+  try{
+    // Ensure players map is loaded
+    if(!g.players) g.players = await loadPlayersMap();
+
+    // Resolve user -> id
+    const uid = await resolveUserId(uname);
+    if(!uid){ renderStatus('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
+    g.userId = uid;
+
+    // Load leagues for selected (default 2025) season
+    const season = document.querySelector('#seasonMain').value;
+    const leagues = await loadMyLeagues(uid, season);
+    if(!Array.isArray(leagues) || leagues.length===0){
+      renderStatus('err', `No leagues found in ${season}. Try switching seasons or check the username.`);
+      document.querySelector('#leagueList').innerHTML = '';
+      return;
+    }
+
+    // Bundle each league
+    g.leagues = {};
+    await Promise.all(leagues.map(async L=>{
+      g.leagues[L.league_id] = await loadLeagueBundle(L.league_id);
+    }));
+
+    // Prep controls + summary nav
+    setWeekOptions(); showControls();
+    const sm = document.querySelector('#summaryItem');
+    sm.classList.remove('hidden');
+    sm.classList.add('active');
+    sm.onclick = async ()=>{
+      g.mode='summary';
+      g.selected=null;
+      document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
+      sm.classList.add('active');
+      await renderUserSummary();
+    };
+
+    // Render sidebar & default view
+    renderLeagueList();
+    g.mode='summary';
+    await renderUserSummary();
+    document.querySelector('#contextNote').textContent = '';
+    renderStatus('ok', `Loaded ${leagues.length} league(s).`);
+  }catch(err){
+    console.error(err);
+    renderStatus('err','Failed to load leagues.');
+  }
 });
 
 /* init */
