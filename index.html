@@ -19,11 +19,12 @@
   .status{margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#0e1734;color:#bcd;font-size:13px}
   .status.ok{color:#9ff3c8;border-color:#2a5}
   .status.err{color:#ffd1d1;border-color:#a33;background:#2a0e14}
+  .hidden{display:none}
 
   .inputs{display:grid;grid-template-columns:1fr 130px;gap:8px}
   .inputs > div{min-width:0}
-  label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600}
-  input,select,button{background:#0e1630;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
+  label{display:block;margin:4px 0 4px;color:#var(--muted);font-weight:600}
+  input,select,button{background:#0e1630;color:#var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
   input,select{width:100%}
   #username{font-size:16px}
   button{cursor:pointer;transition:.2s;white-space:nowrap}
@@ -38,7 +39,12 @@
   .li-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
   .li-sub{font-size:12px;color:#8fa1ff99;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
 
-  /* Alert badge */
+  /* Left pane footer link */
+  .sidebar-connect{ text-align:center; margin:16px auto 6px; font-size:13px }
+  .sidebar-connect a{ color:#8fa1ff99; text-decoration:none }
+  .sidebar-connect a:hover{ text-decoration:underline }
+
+  /* Alert badge in left list */
   .alert-badge{
     background:#e23b3b; color:#fff; min-width:22px; height:22px; padding:0 6px;
     border-radius:999px; display:inline-flex; align-items:center; justify-content:center;
@@ -46,12 +52,18 @@
   }
   .alert-badge.hidden{display:none}
 
-  .controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+  /* Controls: put Season/Week on the left */
+  .controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:flex-start}
   .controls .group{min-width:160px}
+  .controls .group.right{margin-left:auto;min-width:260px}
 
   .tabs{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-  .tab-btn{padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1630}
+  .tab-btn{padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1630; position:relative}
   .tab-btn.active{outline:2px solid var(--accent);color:#000;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  /* Red dot on Alerts tab */
+  .tab-btn .dot{ position:absolute; top:6px; right:6px; width:8px; height:8px; background:#e23b3b; border-radius:999px; box-shadow:0 0 0 2px #0e1630; display:none }
+  .tab-btn.has-alert .dot{ display:block }
+
   .sections > section{display:none;margin-top:12px}
   .sections > section.active{display:block}
 
@@ -67,10 +79,9 @@
 
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   .subhead{margin:8px 0 6px;font-size:13px;color:#8fa1ffcc;text-transform:uppercase;letter-spacing:.08em}
+  .win-arrow{ font-weight:800; margin-left:6px; color:var(--accent2) }
 
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
-  .footer-mini a{color:#8fa1ff99;text-decoration:none}
-  .footer-mini a:hover{text-decoration:underline}
 
   /* landing */
   .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
@@ -84,9 +95,6 @@
   .landing .entry{display:flex; gap:8px; width:min(560px,90vw)}
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
-
-  /* keep this LAST so it wins the cascade over `.landing` */
-  .hidden{display:none}
 </style>
 </head>
 <body>
@@ -164,14 +172,15 @@
 
     <div class="nav-head">Your Leagues</div>
     <div id="leagueList" class="league-list"></div>
+
+    <div class="sidebar-connect">
+      <a href="https://www.linkedin.com/in/aryan-shah/" target="_blank" rel="noopener">Connect with the Creator</a>
+    </div>
   </aside>
 
   <div class="main">
     <div class="controls">
-      <div class="group" style="min-width:260px">
-        <div class="note" id="contextNote"></div>
-        <div class="note" id="posNote"></div><!-- NEW: league roster slots -->
-      </div>
+      <!-- DROPDOWNS MOVED LEFT -->
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
         <select id="seasonMain">
@@ -182,6 +191,11 @@
       <div class="group hidden" id="weekGroup">
         <label for="weekSelect">Week</label>
         <select id="weekSelect"></select>
+      </div>
+
+      <div class="group right">
+        <div class="note" id="contextNote"></div>
+        <div class="note" id="posNote"></div>
       </div>
     </div>
 
@@ -202,9 +216,8 @@
         </section>
         <section id="us-proj"><div id="usProjTable"></div></section>
         <section id="us-byes">
-          <div id="usByeTable"></div>
-          <h3 class="subhead" style="margin-top:14px;">Season Bye Matrix (All Leagues)</h3>
-          <div id="usByeMatrix"></div><!-- NEW -->
+          <h3 class="subhead" style="margin-top:0;">Season Bye Matrix (All Leagues)</h3>
+          <div id="usByeMatrix"></div>
         </section>
       </div>
     </div>
@@ -216,7 +229,7 @@
         <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
         <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
         <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
-        <button class="tab-btn" data-tab="tab-alerts">Alerts</button><!-- NEW -->
+        <button class="tab-btn" data-tab="tab-alerts">Alerts<span class="dot" aria-hidden="true"></span></button>
       </div>
       <div class="sections" id="leagueSections">
         <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
@@ -229,15 +242,12 @@
           </div>
         </section>
         <section id="tab-byes"><div id="byeMatrix"></div></section>
-        <section id="tab-alerts"><div id="alertsView"></div></section><!-- NEW -->
+        <section id="tab-alerts"><div id="alertsView"></div></section>
       </div>
     </div>
 
     <footer>
       Uses public Sleeper API + Rotowire projections via Sleeper. Data cached for ~3h in localStorage.
-      <div class="footer-mini" style="margin-top:6px">
-        <a href="https://www.linkedin.com/in/aryan-shah/" target="_blank" rel="noopener">Connect with the Creator</a>
-      </div>
     </footer>
   </div>
 </div>
