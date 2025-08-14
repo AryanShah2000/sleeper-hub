@@ -63,7 +63,7 @@
   tr:last-child td{border-bottom:none}
   th.sortable{cursor:pointer; user-select:none; position:relative}
   th.sortable .arrow{font-size:11px; margin-left:6px; opacity:.65}
-  th.sorted-asc .arrow, th.sorted-desc .arrow{opacity:1; color:var(--accent)}
+  th.sorted-asc .arrow, th.sorted-desc .arrow{opacity:1; color:#5ee0ff}
 
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   .subhead{margin:8px 0 6px;font-size:13px;color:#8fa1ffcc;text-transform:uppercase;letter-spacing:.08em}
@@ -170,6 +170,7 @@
     <div class="controls">
       <div class="group" style="min-width:260px">
         <div class="note" id="contextNote"></div>
+        <div class="note" id="posNote"></div><!-- NEW: league roster slots -->
       </div>
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
@@ -200,7 +201,11 @@
           <div id="usRootAgainstTable"></div>
         </section>
         <section id="us-proj"><div id="usProjTable"></div></section>
-        <section id="us-byes"><div id="usByeTable"></div></section>
+        <section id="us-byes">
+          <div id="usByeTable"></div>
+          <h3 class="subhead" style="margin-top:14px;">Season Bye Matrix (All Leagues)</h3>
+          <div id="usByeMatrix"></div><!-- NEW -->
+        </section>
       </div>
     </div>
 
@@ -211,6 +216,7 @@
         <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
         <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
         <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
+        <button class="tab-btn" data-tab="tab-alerts">Alerts</button><!-- NEW -->
       </div>
       <div class="sections" id="leagueSections">
         <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
@@ -222,8 +228,8 @@
             <div id="oppStarters"></div>
           </div>
         </section>
-        <!-- NEW: Cross-league bye matrix for the whole season -->
         <section id="tab-byes"><div id="byeMatrix"></div></section>
+        <section id="tab-alerts"><div id="alertsView"></div></section><!-- NEW -->
       </div>
     </div>
 
