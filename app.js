@@ -13,6 +13,7 @@ const el = (tag, attrs = {}, kids = []) => {
   (Array.isArray(kids) ? kids : [kids]).filter(Boolean).forEach((k) => n.append(k));
   return n;
 };
+
 const TTL = 3 * 3600 * 1000;
 const ck = (u) => 'cache:' + u;
 async function fetchJSON(url) {
@@ -30,12 +31,12 @@ async function fetchJSON(url) {
   try { localStorage.setItem(ck(url), JSON.stringify({ ts: now, data })); } catch {}
   return data;
 }
+
 function status(kind, msg) {
   const s = $('#status'); if (!s) return;
   s.className = 'status ' + (kind || '');
   s.innerHTML = msg;
 }
-const dbg = (m) => { const d = $('#debug'); if (d) d.textContent = m; console.log('[MFA]', m); };
 
 // ===== Sleeper fetches =====
 async function resolveUserId(usernameOrId) {
@@ -104,7 +105,7 @@ async function projByPid(season, week, season_type, players, scoring) {
   return out;
 }
 
-// ===== Helpers: rosters/ages/byes =====
+// ===== Helpers: rosters/ages/byes/record =====
 function rosterPids(roster) {
   const s = new Set([...(roster.players||[]), ...(roster.starters||[]), ...(roster.taxi||[])]);
   s.delete('0'); return [...s];
@@ -140,6 +141,13 @@ function ageFrom(d){ const now=new Date(); let a=now.getFullYear()-d.getFullYear
 function age(meta){ if (meta?.age!=null){ const n=+meta.age; if (Number.isFinite(n)&&n>0) return Math.floor(n);} const bd=parseBD(meta); return bd?ageFrom(bd):null; }
 const BYE_2025={ATL:5,CHI:5,GB:5,PIT:5,HOU:6,MIN:6,BAL:7,BUF:7,ARI:8,DET:8,JAX:8,LV:8,LAR:8,SEA:8,CLE:9,NYJ:9,PHI:9,TB:9,CIN:10,DAL:10,KC:10,TEN:10,IND:11,NO:11,DEN:12,LAC:12,MIA:12,WAS:12,CAR:14,NE:14,NYG:14,SF:14};
 function teamBye(team, season){ return season==2025 ? BYE_2025[team] : null; }
+function rosterRecord(roster){
+  const s = roster?.settings || {};
+  const w = Number.isFinite(+s.wins)   ? +s.wins   : 0;
+  const l = Number.isFinite(+s.losses) ? +s.losses : 0;
+  const t = Number.isFinite(+s.ties)   ? +s.ties   : 0;
+  return t > 0 ? `(${w}-${l}-${t})` : `(${w}-${l})`;
+}
 
 // ===== Render helpers =====
 function renderTable(container, headers, rows){
@@ -210,13 +218,117 @@ function renderBye(container, {order,weeks,matrix}){
   rows.push(['TOTAL',...col, col.reduce((s,c)=>s+c,0)]); renderTable(container, headers, rows);
 }
 
-// ===== User summary =====
-function exposuresAcrossLeagues(leagues, userId, players){
-  const counter=new Map();
-  for (const { rosters } of Object.values(leagues)){ const my=rosters.find(r=>r.owner_id===userId); if(!my) continue; for (const pid of rosterPids(my)) counter.set(pid,(counter.get(pid)||0)+1); }
-  const rows=[]; for (const [pid,count] of counter.entries()){ if(count<2) continue; const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); rows.push({ pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', count }); }
-  return rows.sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
+// ===== User summary: exposures =====
+
+// Count how many leagues you roster each player in
+function ownedExposuresAcrossLeagues(leagues, userId) {
+  const counter = new Map();
+  for (const { rosters } of Object.values(leagues)) {
+    const my = rosters.find(r => r.owner_id === userId);
+    if (!my) continue;
+    const pids = new Set([...(my.players || []), ...(my.starters || []), ...(my.taxi || [])]);
+    pids.delete('0');
+    for (const pid of pids) counter.set(pid, (counter.get(pid) || 0) + 1);
+  }
+  return counter; // Map<pid, haveCount>
 }
+
+// Count how many leagues your weekly OPPONENT is starting each player in
+async function opponentExposuresAcrossLeagues(leagues, userId, week) {
+  const counter = new Map();
+
+  await Promise.all(Object.values(leagues).map(async ({ league, users, rosters }) => {
+    const my = rosters.find(r => r.owner_id === userId);
+    if (!my) return;
+
+    let matchups = [];
+    try {
+      matchups = await fetchJSON(`https://api.sleeper.app/v1/league/${league.league_id}/matchups/${week}`);
+    } catch {}
+
+    const byRid = new Map((matchups || []).filter(m => m && typeof m === 'object').map(m => [m.roster_id, m]));
+    const myM = byRid.get(my.roster_id);
+
+    let oppRid = null;
+    if (myM) {
+      const mid = myM.matchup_id;
+      const opp = (matchups || []).find(m => m.matchup_id === mid && m.roster_id !== my.roster_id);
+      oppRid = opp?.roster_id ?? null;
+    }
+
+    if (!oppRid) return;
+
+    const rosterById = Object.fromEntries(rosters.map(r => [r.roster_id, r]));
+    const oppMatch = byRid.get(oppRid) || {};
+    const oppRoster = rosterById[oppRid] || {};
+    const starters = (oppMatch.starters || oppRoster.starters || []).filter(pid => pid !== '0');
+
+    for (const pid of starters) counter.set(pid, (counter.get(pid) || 0) + 1);
+  }));
+
+  return counter; // Map<pid, vsCount>
+}
+
+async function renderUserSummary(){
+  $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent='';
+
+  const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
+
+  // Build "for" and "against" exposures
+  const haveMap = ownedExposuresAcrossLeagues(g.leagues, g.userId);                  // Map<pid, haveCount>
+  const vsMap   = await opponentExposuresAcrossLeagues(g.leagues, g.userId, week);  // Map<pid, vsCount>
+
+  // Who to Root For: only players with haveCount >= 2
+  const rowsFor = [];
+  for (const [pid, haveCount] of haveMap.entries()) {
+    if (haveCount < 2) continue; // threshold
+    const m = g.players[pid] || {};
+    const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
+    const pos = (m.position || 'UNK').toUpperCase();
+    const team = m.team || 'FA';
+    const vsCount = vsMap.get(pid) || 0;
+    rowsFor.push([name, pos, team, haveCount, vsCount]);
+  }
+  rowsFor.sort((a, b) => b[3] - a[3] || a[0].localeCompare(b[0]));
+  if (rowsFor.length === 0) {
+    $('#usRootForTable').innerHTML = '<div class="note">No players with 2+ exposures.</div>';
+  } else {
+    renderSortableTable($('#usRootForTable'),
+      ['Player','Pos','Team','Leagues (Have)','Leagues (Vs)'],
+      rowsFor, ['str','str','str','num','num']);
+  }
+
+  // Who to Root Against: only players with vsCount >= 2
+  const rowsAgainst = [];
+  for (const [pid, vsCount] of vsMap.entries()) {
+    if (vsCount < 2) continue; // threshold
+    const m = g.players[pid] || {};
+    const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
+    const pos = (m.position || 'UNK').toUpperCase();
+    const team = m.team || 'FA';
+    const haveCount = haveMap.get(pid) || 0;
+    rowsAgainst.push([name, pos, team, vsCount, haveCount]);
+  }
+  rowsAgainst.sort((a, b) => b[3] - a[3] || a[0].localeCompare(b[0]));
+  if (rowsAgainst.length === 0) {
+    $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with 2+ exposures this week.</div>';
+  } else {
+    renderSortableTable($('#usRootAgainstTable'),
+      ['Player','Pos','Team','Leagues (Vs)','Leagues (Have)'],
+      rowsAgainst, ['str','str','str','num','num']);
+  }
+
+  // Projections
+  $('#usProjTable').innerHTML = '<div class="note">Calculating projections…</div>';
+  const projRows=await userSummaryProjections(g.leagues, g.players, week);
+  renderTable($('#usProjTable'), ['League','My Proj','Opponent','Opp Proj'], projRows);
+
+  // Bye Count
+  const byeRows=userSummaryByeCount(g.leagues, g.players, seasonSel, week).map(r=>[r[0],r[1]]);
+  renderTable($('#usByeTable'), ['League', 'Players on Bye (W'+week+')'], byeRows);
+}
+
+// ===== User summary: projections + bye =====
 async function userSummaryProjections(leagues, players, week){
   const rows=[]; await Promise.all(Object.values(leagues).map(async (entry)=>{ const {league,users,rosters}=entry; const season=+league.season; const scoring=league.scoring_settings||{};
     const myRoster=rosters.find(r=>r.owner_id===g.userId); if(!myRoster) return;
@@ -231,28 +343,13 @@ function userSummaryByeCount(leagues, players, season, week){
     for (const pid of rosterPids(my)){ const m=players[pid]||{}; let b=teamBye(m.team, season); if(!(Number.isInteger(b)&&b>=1&&b<=18)) b=Number.isInteger(m.bye_week)?m.bye_week:null; if (b===week) total++; }
     rows.push([league.name, total]); } rows.sort((a,b)=>b[1]-a[1]); return rows;
 }
-async function renderUserSummary(){
-  $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent='';
-  const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
-
-  const ex=exposuresAcrossLeagues(g.leagues, g.userId, g.players);
-  const rootRows=ex.map(r=>[r.name,r.pos,r.team,r.count]);
-  renderSortableTable($('#usRootTable'), ['Player','Pos','Team','Leagues'], rootRows, ['str','str','str','num']);
-
-  $('#usProjTable').innerHTML='<div class="note">Calculating projections…</div>';
-  const projRows=await userSummaryProjections(g.leagues, g.players, week);
-  renderTable($('#usProjTable'), ['League','My Proj','Opponent','Opp Proj'], projRows);
-
-  const byeRows=userSummaryByeCount(g.leagues, g.players, seasonSel, week).map(r=>[r[0],r[1]]);
-  renderTable($('#usByeTable'), ['League', 'Players on Bye (W'+week+')'], byeRows);
-}
 
 // ===== UI utilities =====
 function setWeekOptions(){ const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o);} }
 function showControls(){ $('#seasonGroup').classList.remove('hidden'); $('#weekGroup').classList.remove('hidden'); }
 function resetMain(){
-  $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden'); $('#contextNote').textContent=''; $('#debug').textContent='';
-  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#usRootTable','#usProjTable','#usByeTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
+  $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden'); $('#contextNote').textContent='';
+  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#usRootForTable','#usRootAgainstTable','#usProjTable','#usByeTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
 }
 function renderLeagueList(active=null){
   const list=$('#leagueList'); list.innerHTML=''; const ids=Object.keys(g.leagues);
@@ -260,10 +357,14 @@ function renderLeagueList(active=null){
   ids.forEach((id)=>{
     const {league,users,rosters}=g.leagues[id];
     const myRoster=rosters?.find?.(r=>r.owner_id===g.userId);
-    const myUser=users?.find?.(u=>u.user_id===myRoster?.owner_id)||{};
-    const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster?.roster_id??''}`;
+    const myUser=users?.find?.((u)=>u.user_id===myRoster?.owner_id) || {};
+    const myTeamName=(myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster?.roster_id ?? ''}`;
+    const rec = myRoster ? ' ' + rosterRecord(myRoster) : '';
     const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[
-      el('div',{},[ el('div',{class:'li-title',html: league?.name || `League ${id}`}), el('div',{class:'li-sub',html: myTeamName || ''}) ])
+      el('div',{},[
+        el('div',{class:'li-title', html: league?.name || `League ${id}`}),
+        el('div',{class:'li-sub',   html: (myTeamName || '') + rec })
+      ])
     ]);
     item.addEventListener('click', async ()=>{
       g.mode='league'; g.selected=id;
@@ -274,6 +375,7 @@ function renderLeagueList(active=null){
     list.append(item);
   });
 }
+
 async function renderSelectedLeague(){
   const id=g.selected; if(!id) return; const {league,users,rosters}=g.leagues[id];
   const season=+league.season; const week=+($('#weekSelect').value||1);
@@ -303,7 +405,7 @@ async function renderSelectedLeague(){
 // ===== Shared loader (landing + sidebar button) =====
 async function loadForUsername(uname){
   resetMain();
-  status('', 'Looking up your leagues…'); dbg('Looking up your leagues…');
+  status('', 'Looking up your leagues…');
   try{
     if(!g.players) g.players = await loadPlayersMap();
     const uid = await resolveUserId(uname);
@@ -327,10 +429,10 @@ async function loadForUsername(uname){
     g.mode='summary';
     await renderUserSummary();
     $('#contextNote').textContent='';
-    status('ok', `Loaded ${leagues.length} league(s).`); dbg(`Loaded ${leagues.length} league(s).`);
+    status('ok', `Loaded ${leagues.length} league(s).`);
   }catch(err){
     console.error('[MFA] loadForUsername error', err);
-    status('err','Failed to load leagues.'); dbg('Load failed.');
+    status('err','Failed to load leagues.');
   }
 }
 
@@ -384,8 +486,9 @@ function wireEvents(){
 function init(){
   // start on landing; app hidden
   $('#appLayout').classList.add('hidden'); $('#landing').classList.remove('hidden');
-  // prepare week options
-  const wk=$('#weekSelect'); for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o); }
-  wireEvents(); console.log('[MFA] ready');
+  // week options
+  const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o); }
+  wireEvents();
+  console.log('[MFA] ready');
 }
 window.addEventListener('DOMContentLoaded', init);
