@@ -76,6 +76,10 @@
   .subhead{margin:8px 0 6px;font-size:13px;color:#8fa1ffcc;text-transform:uppercase;letter-spacing:.08em}
   .win-arrow{ font-weight:800; margin-left:6px; color:var(--accent2) }
 
+  /* Waiver wire controls */
+  .waiver-controls{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap }
+  .waiver-controls .group{ min-width:160px }
+
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
 
   .landing{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:24px;
@@ -225,6 +229,7 @@
         <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
         <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
         <button class="tab-btn" data-tab="tab-alerts">Alerts<span class="dot" aria-hidden="true"></span></button>
+        <button class="tab-btn" data-tab="tab-waivers">Waiver Wire</button>
       </div>
       <div class="sections" id="leagueSections">
         <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
@@ -238,6 +243,20 @@
         </section>
         <section id="tab-byes"><div id="byeMatrix"></div></section>
         <section id="tab-alerts"><div id="alertsView"></div></section>
+
+        <section id="tab-waivers">
+          <div class="waiver-controls">
+            <div class="group">
+              <label for="waiverPos">Position</label>
+              <select id="waiverPos"></select>
+            </div>
+            <div class="group">
+              <label>&nbsp;</label>
+              <div class="note" id="waiverNote"></div>
+            </div>
+          </div>
+          <div id="waiverTable" style="margin-top:8px"></div>
+        </section>
       </div>
     </div>
 
