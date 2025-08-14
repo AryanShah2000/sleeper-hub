@@ -19,12 +19,11 @@
   .status{margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#0e1734;color:#bcd;font-size:13px}
   .status.ok{color:#9ff3c8;border-color:#2a5}
   .status.err{color:#ffd1d1;border-color:#a33;background:#2a0e14}
-  .hidden{display:none}
 
   .inputs{display:grid;grid-template-columns:1fr 130px;gap:8px}
   .inputs > div{min-width:0}
-  label{display:block;margin:4px 0 4px;color:#var(--muted);font-weight:600}
-  input,select,button{background:#0e1630;color:#var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
+  label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600} /* fixed var() */
+  input,select,button{background:#0e1630;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px} /* fixed var() */
   input,select{width:100%}
   #username{font-size:16px}
   button{cursor:pointer;transition:.2s;white-space:nowrap}
@@ -91,10 +90,13 @@
   .football{position:absolute; top:110px; animation:spin 3.5s linear infinite; opacity:.9}
   @keyframes spin { from{ transform:rotate(0deg) } to{ transform:rotate(360deg) } }
   .bubble{background:#0e1734; border:1px solid var(--border); border-radius:14px; padding:16px 18px; color:#c9d3ffcc}
-  .bubble .hi{font-weight:800; color:#e8ecff; margin-bottom:6px}
+  .bubble .hi{font-weight:800; color:var(--text); margin-bottom:6px}
   .landing .entry{display:flex; gap:8px; width:min(560px,90vw)}
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
+
+  /* keep this LAST so it wins the cascade over `.landing` */
+  .hidden{display:none}
 </style>
 </head>
 <body>
@@ -180,7 +182,7 @@
 
   <div class="main">
     <div class="controls">
-      <!-- DROPDOWNS MOVED LEFT -->
+      <!-- DROPDOWNS LEFT -->
       <div class="group hidden" id="seasonGroup">
         <label for="seasonMain">Season</label>
         <select id="seasonMain">
