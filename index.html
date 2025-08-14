@@ -24,6 +24,7 @@
   .status{margin-bottom:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#0e1734;color:#bcd;font-size:13px}
   .status.ok{color:#9ff3c8;border-color:#2a5}
   .status.err{color:#ffd1d1;border-color:#a33;background:#2a0e14}
+
   .inputs{display:grid;grid-template-columns:1fr 130px;gap:8px}
   .inputs > div{min-width:0}
   label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600}
@@ -70,6 +71,13 @@
   .landing .entry{display:flex; gap:8px; width:min(560px,90vw)}
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
+
+  /* 🏈 Football spinner (just to verify new HTML is live) */
+  .football{font-size:28px; animation:bounce 1.2s infinite ease-in-out}
+  @keyframes bounce{
+    0%,100%{ transform:translateY(0) rotate(0deg) }
+    50%{ transform:translateY(-10px) rotate(10deg) }
+  }
 </style>
 </head>
 <body>
@@ -92,7 +100,9 @@
 <!-- Landing (first screen) -->
 <div id="landing" class="landing">
   <div class="landing-card">
+    <div class="football" aria-hidden="true">🏈</div>
     <div class="bot" aria-hidden="true">
+      <!-- little robot -->
       <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img">
         <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#5ee0ff"/><stop offset="1" stop-color="#84ffb5"/></linearGradient></defs>
         <circle cx="60" cy="14" r="8" fill="url(#g)"/><rect x="58" y="24" width="4" height="10" rx="2" fill="#5ee0ff"/>
@@ -119,6 +129,9 @@
   <aside></aside>
   <div class="main">
     <div class="controls"></div>
+
+    <!-- A tiny debug line so you can see progress -->
+    <div id="debug" class="note"></div>
 
     <!-- User Summary -->
     <div id="userSummary" class="hidden"></div>
