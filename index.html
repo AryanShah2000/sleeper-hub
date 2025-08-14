@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>My Fantasy Agent</title>
 
-<!-- Inline favicon to avoid 404s -->
+<!-- Tiny inline favicon to avoid 404s -->
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="%235ee0ff"/><stop offset="1" stop-color="%2384ffb5"/></linearGradient></defs><circle cx="32" cy="8" r="6" fill="url(%23g)"/><rect x="30" y="14" width="4" height="8" rx="2" fill="%235ee0ff"/><rect x="12" y="22" width="40" height="24" rx="8" fill="%230f1a3a" stroke="%232a3a72"/><circle cx="22" cy="34" r="5" fill="%235ee0ff"/><circle cx="42" cy="34" r="5" fill="%235ee0ff"/><rect x="20" y="44" width="24" height="3" rx="1.5" fill="%2324346b"/></svg>'/>
 
 <style>
@@ -72,12 +72,9 @@
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
 
-  /* 🏈 Football spinner (just to verify new HTML is live) */
+  /* 🏈 Football so you know the HTML is fresh */
   .football{font-size:28px; animation:bounce 1.2s infinite ease-in-out}
-  @keyframes bounce{
-    0%,100%{ transform:translateY(0) rotate(0deg) }
-    50%{ transform:translateY(-10px) rotate(10deg) }
-  }
+  @keyframes bounce{ 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(-10px) rotate(10deg)} }
 </style>
 </head>
 <body>
@@ -102,7 +99,6 @@
   <div class="landing-card">
     <div class="football" aria-hidden="true">🏈</div>
     <div class="bot" aria-hidden="true">
-      <!-- little robot -->
       <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img">
         <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#5ee0ff"/><stop offset="1" stop-color="#84ffb5"/></linearGradient></defs>
         <circle cx="60" cy="14" r="8" fill="url(#g)"/><rect x="58" y="24" width="4" height="10" rx="2" fill="#5ee0ff"/>
@@ -126,18 +122,90 @@
 
 <!-- Main app (hidden until landing completes) -->
 <div id="appLayout" class="layout hidden">
-  <aside></aside>
-  <div class="main">
-    <div class="controls"></div>
+  <aside>
+    <div id="status" class="status">Enter your Sleeper username, choose a season (center), and click <b>View Leagues</b>.</div>
 
-    <!-- A tiny debug line so you can see progress -->
+    <div class="inputs">
+      <div>
+        <label for="username">Sleeper Username</label>
+        <input id="username" placeholder="" />
+      </div>
+      <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end">
+        <button id="viewLeaguesBtn" disabled>View Leagues</button>
+      </div>
+    </div>
+
+    <div class="row-2">
+      <input id="manualLeagueId" placeholder="League ID (optional)" />
+      <button id="addLeagueBtn" disabled>Add</button>
+    </div>
+
+    <div class="nav-head">Overview</div>
+    <div id="summaryItem" class="summary-item hidden">
+      <div>
+        <div class="li-title">User Summary</div>
+        <div class="li-sub">Cross-league view</div>
+      </div>
+    </div>
+
+    <div class="nav-head">Your Leagues</div>
+    <div id="leagueList" class="league-list"></div>
+  </aside>
+
+  <div class="main">
+    <div class="controls">
+      <div class="group" style="min-width:260px"><div class="note" id="contextNote"></div></div>
+      <div class="group hidden" id="seasonGroup">
+        <label for="seasonMain">Season</label>
+        <select id="seasonMain">
+          <option value="2025" selected>2025</option>
+          <option value="2024">2024</option>
+        </select>
+      </div>
+      <div class="group hidden" id="weekGroup">
+        <label for="weekSelect">Week</label>
+        <select id="weekSelect"></select>
+      </div>
+    </div>
+
+    <!-- Debug line -->
     <div id="debug" class="note"></div>
 
-    <!-- User Summary -->
-    <div id="userSummary" class="hidden"></div>
+    <!-- USER SUMMARY -->
+    <div id="userSummary" class="hidden">
+      <div class="tabs" id="usTabs">
+        <button class="tab-btn active" data-tab="us-root">Who to Root For</button>
+        <button class="tab-btn" data-tab="us-proj">Projections</button>
+        <button class="tab-btn" data-tab="us-byes">Bye Count</button>
+      </div>
+      <div class="sections">
+        <section id="us-root" class="active"><div id="usRootTable"></div></section>
+        <section id="us-proj"><div id="usProjTable"></div></section>
+        <section id="us-byes"><div id="usByeTable"></div></section>
+      </div>
+    </div>
 
-    <!-- League Views -->
-    <div id="leagueViews" class="hidden"></div>
+    <!-- LEAGUE VIEWS -->
+    <div id="leagueViews" class="hidden">
+      <div class="tabs" id="leagueTabs">
+        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
+        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
+        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
+        <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
+      </div>
+      <div class="sections" id="leagueSections">
+        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
+        <section id="tab-pos"><div id="posTable"></div></section>
+        <section id="tab-matchup">
+          <div id="matchupSummary"></div>
+          <div class="row" style="margin-top:8px">
+            <div id="myStarters"></div>
+            <div id="oppStarters"></div>
+          </div>
+        </section>
+        <section id="tab-byes"><div id="byeMatrix"></div></section>
+      </div>
+    </div>
 
     <footer>Uses public Sleeper API + Rotowire projections via Sleeper. Data cached for ~3h in localStorage.</footer>
   </div>
