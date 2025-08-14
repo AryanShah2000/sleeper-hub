@@ -31,11 +31,20 @@
 
   .row-2{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:6px}
   .nav-head{font-size:12px;color:#8fa1ff99;margin:12px 0 6px}
-  .league-list{display:flex;flex-direction:column;gap:6px;overflow:auto}
-  .league-item, .summary-item{display:flex;gap:8px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px;background:#0e1734;cursor:pointer}
+  .league-list{display:flex;flex-direction:column;gap:6px;overflow:auto; padding-right:2px}
+  .league-item, .summary-item{display:flex;gap:8px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px;background:#0e1734;cursor:pointer; position:relative; justify-content:space-between}
   .league-item.active, .summary-item.active{outline:2px solid var(--accent)}
-  .li-title{font-weight:600}
-  .li-sub{font-size:12px;color:#8fa1ff99}
+  .li-info{display:flex;flex-direction:column;min-width:0}
+  .li-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .li-sub{font-size:12px;color:#8fa1ff99;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+
+  /* Alert badge */
+  .alert-badge{
+    background:#e23b3b; color:#fff; min-width:22px; height:22px; padding:0 6px;
+    border-radius:999px; display:inline-flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:12px; box-shadow:0 0 0 2px rgba(0,0,0,.25);
+  }
+  .alert-badge.hidden{display:none}
 
   .controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
   .controls .group{min-width:160px}
@@ -146,10 +155,11 @@
 
     <div class="nav-head">Overview</div>
     <div id="summaryItem" class="summary-item hidden">
-      <div>
+      <div class="li-info">
         <div class="li-title">User Summary</div>
         <div class="li-sub">Cross-league view</div>
       </div>
+      <span class="alert-badge hidden" aria-hidden="true">0</span>
     </div>
 
     <div class="nav-head">Your Leagues</div>
@@ -212,6 +222,7 @@
             <div id="oppStarters"></div>
           </div>
         </section>
+        <!-- NEW: Cross-league bye matrix for the whole season -->
         <section id="tab-byes"><div id="byeMatrix"></div></section>
       </div>
     </div>
@@ -229,4 +240,3 @@
 <script src="app.js" defer></script>
 </body>
 </html>
-
