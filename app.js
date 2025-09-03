@@ -118,7 +118,7 @@ async function projByPid(season, week, season_type, players, scoring) {
   return out;
 }
 
-// ===== Weekly stats (for live/finished score if available) =====
+// ===== OPTIONAL: Weekly stats for “actual” score if game started =====
 async function statsRowsByPid(season, week, season_type) {
   try {
     const url = `https://api.sleeper.app/stats/nfl/${season}/${week}?season_type=${season_type}&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF`;
@@ -226,17 +226,7 @@ function renderTable(container, headers, rows){
 }
 function renderSortableTable(container, headers, rows, types){
   const table=el('table'), thead=el('thead'), tbody=el('tbody'); let sortCol=-1, sortDir='desc';
-  const parse=(v,t)=>{
-    if (t==='num'){
-      // If we embedded data-val, prefer it
-      const m=String(v).match(/data-val="(-?\d+(\.\d+)?)"/i);
-      if (m) return +m[1];
-      const d=String(v).replace(/<[^>]*>/g,'').trim();
-      const n=+d; return Number.isNaN(n)?null:n;
-    }
-    if (t==='bye'){ const d=String(v).replace(/<[^>]*>/g,''); return d&&String(d).startsWith('W')?+String(d).slice(1):Number.isNaN(+d)?null:+d; }
-    return String(v||'');
-  };
+  const parse=(v,t)=>(t==='num'?(Number.isNaN(+v)?null:+v): t==='bye'?(v&&String(v).startsWith('W')?+String(v).slice(1):Number.isNaN(+v)?null:+v) : String(v||''));
   const cmp=(a,b,t,d)=>{const mul=d==='asc'?1:-1; if(t==='str') return mul*String(a).localeCompare(String(b)); if(a==null&&b==null) return 0; if(a==null) return 1; if(b==null) return -1; return mul*(a-b);};
   function head(){ const tr=el('tr'); headers.forEach((h,i)=>{ const th=el('th'); th.classList.add('sortable'); th.append(el('span',{html:h}), el('span',{class:'arrow',html:''}));
     th.addEventListener('click',()=>{ if(sortCol===i) sortDir=sortDir==='asc'?'desc':'asc'; else{sortCol=i; sortDir='desc';} body(); arrows(); }); tr.append(th);});
@@ -255,9 +245,9 @@ function renderRoster(container, roster, players, season){
     const m=players[r.pid]||{}; const a=age(m); const ageDisp=Number.isInteger(a)?a:'—';
     let bye=teamBye(r.team, season); if(!(Number.isInteger(bye)&&bye>=1&&bye<=18)) bye=Number.isInteger(r.bye)?r.bye:null;
     const byeDisp=Number.isInteger(bye)?('W'+bye):'—';
-    return [r.name, r.pos, r.team, ageDisp, byeDisp];
+    return [r.name, r.team, byeDisp, ageDisp];
   });
-  renderSortableTable(container, ['Player','Pos','Team','Age','Bye'], rows, ['str','str','str','num','bye']);
+  renderSortableTable(container, ['Player','Team','Bye','Age'], rows, ['str','str','bye','num']);
 }
 function renderPos(container, posStats, order){
   const rows=[];
@@ -341,7 +331,7 @@ function renderByePositions(container, {order,weeks,matrix}){
   renderTable(container, headers, rows);
 }
 
-// ===== Exposure details (with league lists) =====
+// ===== Exposures (detailed lists for tooltips) =====
 function ownedExposureDetail(leagues, userId) {
   const map = new Map(); // pid -> { count, leagues: [] }
   for (const { league, rosters } of Object.values(leagues)) {
@@ -387,93 +377,92 @@ async function opponentExposureDetail(leagues, userId, week) {
   return map;
 }
 
-// Helper: make hoverable count with league lists (both For/Against shown)
-function makeTipSpan(count, forArr, againstArr){
-  const safe = (arr)=>Array.from(new Set((arr||[]).map(s=>String(s))));
-  const f = safe(forArr).join('||');
-  const a = safe(againstArr).join('||');
-  return `<span class="tip-anchor" data-val="${count}" data-for="${encodeURIComponent(f)}" data-against="${encodeURIComponent(a)}">${count}</span>`;
-}
-
 // ===== Rooting Interest + Projections + Overview =====
 async function renderUserSummary(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
 
   const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
 
+  // Exposure maps with league names
   const haveDetail = ownedExposureDetail(g.leagues, g.userId);
   const vsDetail   = await opponentExposureDetail(g.leagues, g.userId, week);
 
-  const season = +($('#seasonMain').value || '2025');
-  const projRows = await providerRows(season, week, 'regular');
+  // Opp / score data (projected and actual if available)
   const anyLeague = Object.values(g.leagues)[0];
   const scoringSample = anyLeague?.league?.scoring_settings || {};
-  const projMap  = {}; Object.keys(projRows).forEach(pid => projMap[pid] = rescored(pid, projRows, g.players, scoringSample));
+  const season = +($('#seasonMain').value || '2025');
+  const projRows = await providerRows(season, week, 'regular'); // raw rows per pid (for NFL opp)
+  const projMap  = {};
+  Object.keys(projRows).forEach(pid => projMap[pid] = rescored(pid, projRows, g.players, scoringSample));
   const statRows = await statsRowsByPid(season, week, 'regular');
 
-  function nflOpp(pid){ return opponentFromProjectionRow(projRows[pid]); }
-  function nflScore(pid){
+  function nflOpp(pid) {
+    const row = projRows[pid];
+    return opponentFromProjectionRow(row);
+  }
+  function nflScore(pid) {
     const actual = rescoredFromStats(pid, statRows, g.players, scoringSample);
-    if (actual != null) return `<span data-val="${actual}">${actual.toFixed(2)}</span>`;
+    if (actual != null) return actual.toFixed(2);
     const proj = projMap[pid] != null ? projMap[pid] : 0;
-    return `<span data-val="${proj}">${proj.toFixed(2)} <span class="note">(Proj)</span></span>`;
+    return `${proj.toFixed(2)} <span class="note">(Proj)</span>`;
   }
 
-  // Root For
+  const encode = (arr=[]) => arr.map(x=>x.replaceAll('|','/')).join('||');
+
+  // Who to Root For (no Position column; split NFL Opp / Score; rename For/Against)
   const rowsFor = [];
   for (const [pid, info] of haveDetail.entries()) {
     if (info.count < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const team = m.team || 'FA';
-    const vsInfo = vsDetail.get(pid) || { count: 0, leagues: [] };
-    const nflO = nflOpp(pid);
-    const score = nflScore(pid);
-    const forSpan = makeTipSpan(info.count, info.leagues, vsInfo.leagues);
-    const againstSpan = makeTipSpan(vsInfo.count, info.leagues, vsInfo.leagues);
-    rowsFor.push([name, team, nflO, score, forSpan, againstSpan]);
+    const vs = vsDetail.get(pid)?.count || 0;
+
+    const haveList = info.leagues || [];
+    const vsList   = vsDetail.get(pid)?.leagues || [];
+
+    const forCell = `<span class="hover-bubble" data-for="${encode(haveList)}" data-against="${encode(vsList)}">${info.count}</span>`;
+    const againstCell = `<span class="hover-bubble" data-for="${encode(haveList)}" data-against="${encode(vsList)}">${vs}</span>`;
+
+    rowsFor.push([name, team, nflOpp(pid), nflScore(pid), forCell, againstCell]);
   }
-  rowsFor.sort((a, b) => {
-    const ax = +(String(a[4]).match(/data-val="(\d+)/)?.[1] || 0);
-    const bx = +(String(b[4]).match(/data-val="(\d+)/)?.[1] || 0);
-    return bx - ax || String(a[0]).localeCompare(String(b[0]));
-  });
+  rowsFor.sort((a, b) => parseInt(a[4].match(/\d+/)?.[0]||'0') === parseInt(b[4].match(/\d+/)?.[0]||'0')
+    ? a[0].localeCompare(b[0]) : parseInt(b[4].match(/\d+/)?.[0]||'0') - parseInt(a[4].match(/\d+/)?.[0]||'0'));
   if (rowsFor.length === 0) {
     $('#usRootForTable').innerHTML = '<div class="note">No players with 2+ exposures.</div>';
   } else {
     renderSortableTable($('#usRootForTable'),
-      ['Player','Team','NFL Opp','Score','For','Against'],
-      rowsFor, ['str','str','str','num','num','num']);
+      ['Player','Team','NFL Opp','NFL Score','For','Against'],
+      rowsFor, ['str','str','str','str','num','num']);
   }
 
-  // Root Against
+  // Who to Root Against (no Position; split opp/score; rename columns)
   const rowsAgainst = [];
   for (const [pid, info] of vsDetail.entries()) {
     if (info.count < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const team = m.team || 'FA';
-    const haveInfo = haveDetail.get(pid) || { count: 0, leagues: [] };
-    const nflO = nflOpp(pid);
-    const score = nflScore(pid);
-    const againstSpan = makeTipSpan(info.count, haveInfo.leagues, info.leagues);
-    const forSpan = makeTipSpan(haveInfo.count, haveInfo.leagues, info.leagues);
-    rowsAgainst.push([name, team, nflO, score, againstSpan, forSpan]);
+    const have = haveDetail.get(pid)?.count || 0;
+
+    const haveList = haveDetail.get(pid)?.leagues || [];
+    const vsList   = info.leagues || [];
+
+    const againstCell = `<span class="hover-bubble" data-for="${encode(haveList)}" data-against="${encode(vsList)}">${info.count}</span>`;
+    const forCell     = `<span class="hover-bubble" data-for="${encode(haveList)}" data-against="${encode(vsList)}">${have}</span>`;
+
+    rowsAgainst.push([name, team, nflOpp(pid), nflScore(pid), againstCell, forCell]);
   }
-  rowsAgainst.sort((a, b) => {
-    const ax = +(String(a[4]).match(/data-val="(\d+)/)?.[1] || 0);
-    const bx = +(String(b[4]).match(/data-val="(\d+)/)?.[1] || 0);
-    return bx - ax || String(a[0]).localeCompare(String(b[0]));
-  });
+  rowsAgainst.sort((a, b) => parseInt(b[4].match(/\d+/)?.[0]||'0') - parseInt(a[4].match(/\d+/)?.[0]||'0') || a[0].localeCompare(b[0]));
   if (rowsAgainst.length === 0) {
     $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with 2+ exposures this week.</div>';
   } else {
     renderSortableTable($('#usRootAgainstTable'),
-      ['Player','Team','NFL Opp','Score','Against','For'],
-      rowsAgainst, ['str','str','str','num','num','num']);
+      ['Player','Team','NFL Opp','NFL Score','Against','For'],
+      rowsAgainst, ['str','str','str','str','num','num']);
   }
 
-  // Projections (unchanged except arrow direction already fixed previously)
+  // Projections (arrow points toward the number)
   $('#usProjTable').innerHTML = '<div class="note">Calculating projections…</div>';
   const projRowsTbl = await userSummaryProjections(g.leagues, g.players, week);
   renderTable($('#usProjTable'), ['League','My Proj','Opp Proj','Opponent'], projRowsTbl);
@@ -484,6 +473,9 @@ async function renderUserSummary(){
 
   // Matchup Overview cards
   await renderUserMatchupsOverview(week);
+
+  // Activate hover bubbles (tooltips) now that tables are in DOM
+  wireHoverBubbles();
 }
 
 async function userSummaryProjections(leagues, players, week){
@@ -499,6 +491,7 @@ async function userSummaryProjections(leagues, players, week){
     const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
 
+    // Arrow BEFORE the larger score (points toward it)
     const myCell  = (me  > opp) ? `<span class="win-arrow">➜</span> ${me.toFixed(2)}` : me.toFixed(2);
     const oppCell = (opp > me ) ? `<span class="win-arrow">➜</span> ${opp.toFixed(2)}` : opp.toFixed(2);
 
@@ -508,14 +501,14 @@ async function userSummaryProjections(leagues, players, week){
   return rows;
 }
 
-// ===== Matchup Overview (uniform cards + click to open league) =====
+// ===== Matchup Overview (no highlight; centered league; clickable to open league) =====
 async function renderUserMatchupsOverview(week){
   const wrap = $('#usMatchups');
   if (!wrap) return;
   wrap.innerHTML = '';
 
   const cards = [];
-  await Promise.all(Object.entries(g.leagues).map(async ([lid, { league, users, rosters }]) => {
+  await Promise.all(Object.values(g.leagues).map(async ({ league, users, rosters }) => {
     const season=+league.season; const scoring=league.scoring_settings||{};
     const myRoster=rosters.find(r=>r.owner_id===g.userId); if(!myRoster) return;
     const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
@@ -527,25 +520,14 @@ async function renderUserMatchupsOverview(week){
     const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
 
-    const card = el('div', { class: 'm-card', 'data-lid': lid }, [
+    const card = el('div', { class: 'm-card', 'data-league-id': league.league_id }, [
       el('div', { class: 'm-league', html: league.name }),
       el('div', { class: 'm-match',  html: `${prev.me.team_name || 'Me'} vs ${prev.opponent.team_name || 'Opponent'}` }),
       el('div', { class: 'm-scores', html:
         `<div class="m-score"><span class="label">My Proj</span><span class="val">${me.toFixed(2)}</span></div>
          <div class="m-score"><span class="label">Opp Proj</span><span class="val">${opp.toFixed(2)}</span></div>` })
     ]);
-    card.addEventListener('click', async ()=>{
-      // jump to this league
-      g.mode='league'; g.selected=lid;
-      // mark sidebar active
-      document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
-      const side = document.querySelector(`.league-item[data-id="${lid}"]`);
-      if (side) side.classList.add('active');
-      $('#summaryItem').classList.remove('active');
-      await renderSelectedLeague();
-      // scroll sidebar to the selected league (optional nicety)
-      side?.scrollIntoView?.({ block:'nearest' });
-    });
+    card.addEventListener('click', ()=> goToLeague(league.league_id));
     cards.push(card);
   }));
 
@@ -555,6 +537,53 @@ async function renderUserMatchupsOverview(week){
   }
   const grid = el('div', { class: 'm-grid' }, cards);
   wrap.append(grid);
+}
+
+// ===== Tooltip bubble for Rooting Interest counts =====
+let tipEl = null, tipOn = false;
+function ensureTip(){
+  if (tipEl) return tipEl;
+  tipEl = el('div', { class: 'tt-bubble hidden' });
+  document.body.append(tipEl);
+  return tipEl;
+}
+function fillTip(forList, againstList){
+  const fmt = (arr)=> (arr && arr.length) ? `<ul>${arr.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '<div class="tt-empty">—</div>';
+  tipEl.innerHTML = `
+    <div class="tt-row"><span class="tt-tag tt-for">For</span>${fmt(forList)}</div>
+    <div class="tt-row"><span class="tt-tag tt-against">Against</span>${fmt(againstList)}</div>
+  `;
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+function placeTip(x,y){
+  const pad=12, vw=window.innerWidth, vh=window.innerHeight;
+  let left=x+pad, top=y+pad;
+  const rect = tipEl.getBoundingClientRect();
+  if (left + rect.width + pad > vw) left = x - rect.width - pad;
+  if (top + rect.height + pad > vh) top = y - rect.height - pad;
+  tipEl.style.left = `${left}px`;
+  tipEl.style.top  = `${top}px`;
+}
+function wireHoverBubbles(){
+  ensureTip();
+  document.querySelectorAll('.hover-bubble').forEach(node=>{
+    const parse = (ds)=> (ds ? ds.split('||').filter(Boolean) : []);
+    node.addEventListener('mouseenter', (e)=>{
+      const forList = parse(node.dataset.for);
+      const againstList = parse(node.dataset.against);
+      fillTip(forList, againstList);
+      tipEl.classList.remove('hidden');
+      tipOn = true;
+      placeTip(e.clientX, e.clientY);
+    });
+    node.addEventListener('mousemove', (e)=>{
+      if (!tipOn) return;
+      placeTip(e.clientX, e.clientY);
+    });
+    node.addEventListener('mouseleave', ()=>{
+      tipEl.classList.add('hidden'); tipOn = false;
+    });
+  });
 }
 
 // ===== Alerts (badges + collapsible replacements) =====
@@ -837,6 +866,21 @@ async function renderSelectedLeague(){
   $('#leagueViews').classList.remove('hidden');
 }
 
+// Navigate to a league (used by Matchup Overview card click)
+async function goToLeague(leagueId){
+  if (!g.leagues[leagueId]) return;
+  g.mode = 'league';
+  g.selected = leagueId;
+  // Sidebar highlight
+  document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
+  const item = $(`#leagueList .league-item[data-id="${leagueId}"]`);
+  if (item) item.classList.add('active');
+  $('#summaryItem').classList.remove('active');
+  await renderSelectedLeague();
+  // Scroll to top of main panel for convenience
+  document.querySelector('.main')?.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 // ===== Shared loader (landing + sidebar button) =====
 async function loadForUsername(uname){
   resetMain();
@@ -872,38 +916,6 @@ async function loadForUsername(uname){
     console.error('[MFA] loadForUsername error', err);
     status('err','Failed to load leagues.');
   }
-}
-
-// ===== Tooltip bubble (For/Against league lists) =====
-function ensureTooltip(){
-  if ($('#tooltipBubble')) return $('#tooltipBubble');
-  const tip = el('div', { id:'tooltipBubble', class:'tooltip hidden' });
-  document.body.appendChild(tip);
-  return tip;
-}
-function showTooltip(e, forStr, againstStr){
-  const tip = ensureTooltip();
-  const forList = decodeURIComponent(forStr||'').split('||').filter(Boolean);
-  const againstList = decodeURIComponent(againstStr||'').split('||').filter(Boolean);
-  const fmt = (arr)=>arr.length? `<ul>${arr.sort().map(x=>`<li>${x}</li>`).join('')}</ul>` : '<div class="note">None</div>';
-  tip.innerHTML = `<div class="tip-grid">
-    <div><div class="tip-title">For</div>${fmt(forList)}</div>
-    <div><div class="tip-title">Against</div>${fmt(againstList)}</div>
-  </div>`;
-  tip.classList.remove('hidden');
-  positionTooltip(e, tip);
-}
-function hideTooltip(){
-  const tip = $('#tooltipBubble'); if (tip) tip.classList.add('hidden');
-}
-function positionTooltip(e, tip){
-  const pad = 10;
-  const { clientX:x, clientY:y } = e;
-  const w = tip.offsetWidth || 240, h = tip.offsetHeight || 120;
-  let left = x + pad, top = y + pad;
-  if (left + w > window.innerWidth) left = x - w - pad;
-  if (top + h > window.innerHeight) top = y - h - pad;
-  tip.style.left = left + 'px'; tip.style.top = top + 'px';
 }
 
 // ===== Events & init =====
@@ -946,7 +958,7 @@ function wireEvents(){
     catch(e){ console.error(e); status('err','Could not add that League ID.'); }
   });
 
-  // Tabs (league + user summary) + waiver jump
+  // Tabs + waiver jump
   document.addEventListener('click', async (e)=>{
     const btn1=e.target.closest('#leagueTabs .tab-btn');
     if(btn1){
@@ -987,19 +999,6 @@ function wireEvents(){
         g.waiverPref = null;
       }
     }
-  });
-
-  // Tooltip handlers (For/Against numbers)
-  document.addEventListener('mousemove', (e)=>{
-    const a = e.target.closest('.tip-anchor');
-    if (a) {
-      showTooltip(e, a.getAttribute('data-for')||'', a.getAttribute('data-against')||'');
-    } else {
-      hideTooltip();
-    }
-  });
-  document.addEventListener('mouseleave', (e)=>{
-    if (!e.relatedTarget) hideTooltip();
   });
 
   // Landing
