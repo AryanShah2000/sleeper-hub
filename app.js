@@ -118,10 +118,62 @@ async function projByPid(season, week, season_type, players, scoring) {
   return out;
 }
 
+// ===== OPTIONAL: Live-ish weekly stats for “actual” score if game started =====
+// If endpoint not available for some env, we’ll silently fall back to projections.
+async function statsRowsByPid(season, week, season_type) {
+  try {
+    const url = `https://api.sleeper.app/stats/nfl/${season}/${week}?season_type=${season_type}&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF`;
+    const raw = await fetchJSON(url);
+    const by = {};
+    if (Array.isArray(raw)) {
+      for (const it of raw) {
+        const pid = String(it.player_id || it.player || '');
+        if (!pid) continue;
+        by[pid] = it;
+      }
+    }
+    return by;
+  } catch {
+    return {};
+  }
+}
+function rescoredFromStats(pid, statsRowByPid, players, scoring) {
+  const row = statsRowByPid[pid];
+  if (!row) return null;
+  // Some stats payloads already include fantasy points; otherwise re-score from stat components:
+  const ks = ['ppr','pts_ppr','fantasy_points_ppr'];
+  for (const k of ks) if (row?.[k] != null) return +row[k] || 0;
+
+  const meta = players[pid] || {};
+  let pos = (meta.position || 'UNK').toUpperCase();
+  if (pos === 'D/ST' || pos === 'DST') pos = 'DEF';
+
+  const st = (row || {}).stats || row || {};
+  const v = (k) => +((st?.[k]) || 0);
+  const sc = scoring || {};
+  let pts = 0;
+  if (pos === 'K' || pos === 'DEF') {
+    // K/DEF might still have 'ppr' in row; if not, leave null to use projections
+    return null;
+  }
+  pts += v('pass_yd')*(sc.pass_yd||0) + v('pass_td')*(sc.pass_td||0) + v('pass_int')*(sc.pass_int||0) + v('pass_2pt')*(sc.pass_2pt||0);
+  pts += v('rush_yd')*(sc.rush_yd||0) + v('rush_td')*(sc.rush_td||0) + v('rush_2pt')*(sc.rush_2pt||0);
+  const rec = v('rec');
+  pts += rec*(sc.rec||0) + v('rec_yd')*(sc.rec_yd||0) + v('rec_td')*(sc.rec_td||0) + v('rec_2pt')*(sc.rec_2pt||0);
+  pts += v('fum_lost')*(sc.fum_lost||0);
+  if (pos === 'TE') pts += rec*(sc.bonus_rec_te||0);
+  return +pts.toFixed(2);
+}
+function opponentFromProjectionRow(row) {
+  // Try a few known fields; fallback ‘—’
+  const s = row?.stats || {};
+  return row?.opponent || row?.opp || s?.opp || s?.opponent || '—';
+}
+
 // ===== Helpers: rosters/ages/byes/record =====
 function rosterPids(roster) {
-  const s = new Set([...(roster.players||[]), ...(roster.starters||[]), ...(roster.taxi||[])]); s.delete('0');
-  return [...s];
+  const s = new Set([...(roster.players||[]), ...(roster.starters||[]), ...(roster.taxi||[])]);
+  s.delete('0'); return [...s];
 }
 function rosterRows(roster, players, projFn) {
   return rosterPids(roster).map((pid) => {
@@ -172,29 +224,15 @@ function rosterRecord(roster){
 }
 
 // ===== Render helpers =====
-// NEW: support cell objects { html, sort } for sortable tables (so we can show tooltips but keep numeric sort)
 function renderTable(container, headers, rows){
   const table=el('table'), thead=el('thead'), tbody=el('tbody');
   thead.append(el('tr',{},headers.map(h=>el('th',{html:h}))));
-  rows.forEach(r=>tbody.append(el('tr',{},r.map(c=>{
-    if (c && typeof c === 'object' && 'html' in c) return el('td',{html:String(c.html)});
-    return el('td',{html:String(c)});
-  }))));
+  rows.forEach(r=>tbody.append(el('tr',{},r.map(c=>el('td',{html:String(c)})))));
   table.append(thead,tbody); container.innerHTML=''; container.append(table);
 }
 function renderSortableTable(container, headers, rows, types){
   const table=el('table'), thead=el('thead'), tbody=el('tbody'); let sortCol=-1, sortDir='desc';
-  const getRaw = (v) => (v && typeof v === 'object' && ('sort' in v || 'html' in v)) ? (v.sort ?? v.html) : v;
-  const parse=(v,t)=>{
-    const raw = getRaw(v);
-    if (t==='num') return (Number.isNaN(+raw)?null:+raw);
-    if (t==='bye') {
-      const s = raw && String(raw);
-      if (s && s.startsWith('W')) return +s.slice(1);
-      return Number.isNaN(+raw)?null:+raw;
-    }
-    return String(raw ?? '');
-  };
+  const parse=(v,t)=>(t==='num'?(Number.isNaN(+v)?null:+v): t==='bye'?(v&&String(v).startsWith('W')?+String(v).slice(1):Number.isNaN(+v)?null:+v) : String(v||''));
   const cmp=(a,b,t,d)=>{const mul=d==='asc'?1:-1; if(t==='str') return mul*String(a).localeCompare(String(b)); if(a==null&&b==null) return 0; if(a==null) return 1; if(b==null) return -1; return mul*(a-b);};
   function head(){ const tr=el('tr'); headers.forEach((h,i)=>{ const th=el('th'); th.classList.add('sortable'); th.append(el('span',{html:h}), el('span',{class:'arrow',html:''}));
     th.addEventListener('click',()=>{ if(sortCol===i) sortDir=sortDir==='asc'?'desc':'asc'; else{sortCol=i; sortDir='desc';} body(); arrows(); }); tr.append(th);});
@@ -203,10 +241,7 @@ function renderSortableTable(container, headers, rows, types){
   function arrows(){ thead.querySelectorAll('th').forEach((th,i)=>{ th.classList.remove('sorted-asc','sorted-desc'); const a=th.querySelector('.arrow'); if(!a) return;
     if(i===sortCol){ th.classList.add(sortDir==='asc'?'sorted-asc':'sorted-desc'); a.textContent=sortDir==='asc'?'▲':'▼'; } else a.textContent=''; });}
   function body(){ const t=rows.map(r=>({raw:r,key:r.map((c,idx)=>parse(c,types[idx]))})); if(sortCol>=0) t.sort((ra,rb)=>cmp(ra.key[sortCol],rb.key[sortCol],types[sortCol],sortDir));
-    tbody.innerHTML=''; t.forEach(r=>tbody.append(el('tr',{},r.raw.map(c=>{
-      if (c && typeof c === 'object' && 'html' in c) return el('td',{html:String(c.html)});
-      return el('td',{html:String(c)});
-    })))); }
+    tbody.innerHTML=''; t.forEach(r=>tbody.append(el('tr',{},r.raw.map(c=>el('td',{html:String(c)}))))); }
   head(); body(); arrows(); table.append(thead,tbody); container.innerHTML=''; container.append(table);
 }
 
@@ -302,27 +337,27 @@ function renderByePositions(container, {order,weeks,matrix}){
   renderTable(container, headers, rows);
 }
 
-// ===== Exposures (user summary) =====
-// NEW: keep league lists for hover tooltips
-function ownedExposureDetailAcrossLeagues(leagues, userId) {
-  const map = new Map(); // pid -> {count, leagues:[]}
+// ===== Exposures (user summary) with league lists for tooltips =====
+function ownedExposureDetail(leagues, userId) {
+  const map = new Map(); // pid -> { count, leagues: [] }
   for (const { league, rosters } of Object.values(leagues)) {
     const my = rosters.find(r => r.owner_id === userId);
     if (!my) continue;
     const pids = new Set([...(my.players || []), ...(my.starters || []), ...(my.taxi || [])]);
     pids.delete('0');
     for (const pid of pids) {
-      const key = String(pid);
-      const prev = map.get(key) || { count:0, leagues:[] };
-      prev.count += 1; prev.leagues.push(league.name);
-      map.set(key, prev);
+      const k = String(pid);
+      if (!map.has(k)) map.set(k, { count: 0, leagues: [] });
+      const e = map.get(k);
+      e.count += 1;
+      e.leagues.push(league.name);
     }
   }
   return map;
 }
-async function opponentExposureDetailAcrossLeagues(leagues, userId, week) {
-  const map = new Map(); // pid -> {count, leagues:[]}
-  await Promise.all(Object.values(leagues).map(async ({ league, users, rosters }) => {
+async function opponentExposureDetail(leagues, userId, week) {
+  const map = new Map(); // pid -> { count, leagues: [] }
+  await Promise.all(Object.values(leagues).map(async ({ league, rosters }) => {
     const my = rosters.find(r => r.owner_id === userId);
     if (!my) return;
     let matchups = [];
@@ -330,169 +365,113 @@ async function opponentExposureDetailAcrossLeagues(leagues, userId, week) {
 
     const byRid = new Map((matchups || []).filter(m => m && typeof m === 'object').map(m => [m.roster_id, m]));
     const myM = byRid.get(my.roster_id);
-    let oppRid = null;
-    if (myM) {
-      const mid = myM.matchup_id;
-      const opp = (matchups || []).find(m => m.matchup_id === mid && m.roster_id !== my.roster_id);
-      oppRid = opp?.roster_id ?? null;
-    }
+    if (!myM) return;
+    const mid = myM.matchup_id;
+    const opp = (matchups || []).find(m => m.matchup_id === mid && m.roster_id !== my.roster_id);
+    const oppRid = opp?.roster_id ?? null;
     if (!oppRid) return;
 
-    const rosterById = Object.fromEntries(rosters.map(r => [r.roster_id, r]));
-    const oppMatch = byRid.get(oppRid) || {};
-    const oppRoster = rosterById[oppRid] || {};
-    const starters = (oppMatch.starters || oppRoster.starters || []).filter(pid => pid !== '0');
-
+    const starters = (byRid.get(oppRid)?.starters || []).filter(pid => pid !== '0');
     for (const pid of starters) {
-      const key = String(pid);
-      const prev = map.get(key) || { count:0, leagues:[] };
-      prev.count += 1; prev.leagues.push(league.name);
-      map.set(key, prev);
+      const k = String(pid);
+      if (!map.has(k)) map.set(k, { count: 0, leagues: [] });
+      const e = map.get(k);
+      e.count += 1;
+      e.leagues.push(league.name);
     }
   }));
   return map;
 }
 
-// Helper to derive basic NFL matchup + score/projection from projection rows (best-effort)
-function matchupFromProjection(pid, rowsByPid, players) {
-  const row = rowsByPid?.[pid];
-  const meta = players[pid] || {};
-  const team = (row?.team || meta.team || '').toUpperCase();
-  const opp  = (row?.opponent || row?.opp || row?.opp_team || '').toUpperCase();
-
-  let home = row?.home_team ? String(row.home_team).toUpperCase() : null;
-  let away = row?.away_team ? String(row.away_team).toUpperCase() : null;
-
-  const isHome = home && team ? (home === team) : null;
-  const vsStr = (team && opp)
-    ? (isHome === false ? `${team} @ ${opp}` : `${team} vs ${opp}`)
-    : (team || opp ? `${team} vs ${opp}`.trim() : '—');
-
-  // Try live score first
-  const candScores = [
-    [row?.team_score, row?.opp_score],
-    [row?.home_score, row?.away_score],
-    [row?.score_home, row?.score_away]
-  ].find(([a,b]=[]) => Number.isFinite(+a) && Number.isFinite(+b));
-
-  if (candScores) {
-    let [a,b] = candScores.map(x=>+x);
-    // If we used home/away but team is away, flip to team-first perspective
-    if (home && away && team) {
-      const teamIsHome = (team === home);
-      if (!teamIsHome) [a,b] = [b,a];
-    }
-    return { matchup: vsStr, score: `${a}-${b}` };
-  }
-
-  // Otherwise show projected team totals if present
-  const candProj = [
-    [row?.team_total, row?.opp_total],
-    [row?.proj_team_points, row?.proj_opp_points]
-  ].find(([a,b]=[]) => Number.isFinite(+a) && Number.isFinite(+b));
-
-  if (candProj) {
-    const [a,b] = candProj.map(x=>+x);
-    return { matchup: vsStr, score: `Proj ${a}-${b}` };
-  }
-
-  return { matchup: vsStr, score: '—' };
-}
-
+// ===== Rooting Interest + Projections + Overview =====
 async function renderUserSummary(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
 
-  const week=+($('#weekSelect').value||1);
-  const seasonSel=+($('#seasonMain').value||2025);
+  const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
 
-  // Pull detail maps for hover tooltips
-  const haveDetail = ownedExposureDetailAcrossLeagues(g.leagues, g.userId);
-  const vsDetail   = await opponentExposureDetailAcrossLeagues(g.leagues, g.userId, week);
+  // Build exposure details (with league-name lists for hover)
+  const haveDetail = ownedExposureDetail(g.leagues, g.userId);
+  const vsDetail   = await opponentExposureDetail(g.leagues, g.userId, week);
 
-  // Also get projection rows once so we can show NFL opponent + score/proj in rooting-interest
-  const rowsByPid = await providerRows(seasonSel, week, 'regular');
+  // Preload projections + try stats for “actual if started”
+  // We also keep the original provider rows to sniff opponent hints.
+  const anyLeague = Object.values(g.leagues)[0];
+  const scoringSample = anyLeague?.league?.scoring_settings || {};
+  const season = +($('#seasonMain').value || '2025');
+  const projRows = await providerRows(season, week, 'regular'); // raw rows per pid (for opp sniff)
+  const projMap  = {}; // rescored points for all pids (using sample scoring — for display only here)
+  Object.keys(projRows).forEach(pid => projMap[pid] = rescored(pid, projRows, g.players, scoringSample));
+  const statRows = await statsRowsByPid(season, week, 'regular');
+
+  // Helper to display NFL opponent + score (actual if available; else projected)
+  function nflCell(pid) {
+    const row = projRows[pid];
+    const opp = opponentFromProjectionRow(row);
+    // Try actual (if we can rescore stats); else show projected
+    const actual = rescoredFromStats(pid, statRows, g.players, scoringSample);
+    if (actual != null) return `${opp} — ${actual.toFixed(2)}`;
+    const proj = projMap[pid] != null ? projMap[pid] : 0;
+    return `${opp} — ${proj.toFixed(2)} <span class="note">(Proj)</span>`;
+  }
+  const tooltip = (names=[]) => names.length ? names.sort().join('\n') : '—';
 
   // Root For
   const rowsFor = [];
   for (const [pid, info] of haveDetail.entries()) {
-    if ((info.count||0) < 2) continue;
+    if (info.count < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const pos = (m.position || 'UNK').toUpperCase();
     const team = m.team || 'FA';
-    const vsInfo = vsDetail.get(pid) || { count:0, leagues:[] };
-
-    const nfl = matchupFromProjection(pid, rowsByPid, g.players);
-
-    rowsFor.push([
-      name,
-      pos,
-      team,
-      nfl.matchup || '—',
-      nfl.score || '—',
-      // "Have" with hover: show list of leagues
-      { html: `<span title="${info.leagues.join('\n')}">${info.count}</span>`, sort: info.count },
-      // "Against" with hover
-      { html: `<span title="${vsInfo.leagues.join('\n')}">${vsInfo.count}</span>`, sort: vsInfo.count }
-    ]);
+    const vs = vsDetail.get(pid)?.count || 0;
+    const haveCell = `<span class="hover-list" title="${tooltip(info.leagues)}">${info.count}</span>`;
+    const vsCell   = `<span class="hover-list" title="${tooltip(vsDetail.get(pid)?.leagues || [])}">${vs}</span>`;
+    const nfl      = nflCell(pid);
+    rowsFor.push([name, pos, team, nfl, haveCell, vsCell]);
   }
-  rowsFor.sort((a, b) => (b[5].sort - a[5].sort) || a[0].localeCompare(b[0]));
+  rowsFor.sort((a, b) => parseInt(b[4]) - parseInt(a[4]) || a[0].localeCompare(b[0]));
   if (rowsFor.length === 0) {
     $('#usRootForTable').innerHTML = '<div class="note">No players with 2+ exposures.</div>';
   } else {
-    renderSortableTable(
-      $('#usRootForTable'),
-      ['Player','Pos','Team','NFL','Score/Proj','Leagues (Have)','Leagues (Against)'],
-      rowsFor,
-      ['str','str','str','str','str','num','num']
-    );
+    renderSortableTable($('#usRootForTable'),
+      ['Player','Pos','Team','NFL Opp / Score','Leagues (Have)','Leagues (Against)'],
+      rowsFor, ['str','str','str','str','num','num']);
   }
 
   // Root Against
   const rowsAgainst = [];
   for (const [pid, info] of vsDetail.entries()) {
-    if ((info.count||0) < 2) continue;
+    if (info.count < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const pos = (m.position || 'UNK').toUpperCase();
     const team = m.team || 'FA';
-    const haveInfo = haveDetail.get(pid) || { count:0, leagues:[] };
-
-    const nfl = matchupFromProjection(pid, rowsByPid, g.players);
-
-    rowsAgainst.push([
-      name,
-      pos,
-      team,
-      nfl.matchup || '—',
-      nfl.score || '—',
-      { html: `<span title="${info.leagues.join('\n')}">${info.count}</span>`, sort: info.count },
-      { html: `<span title="${haveInfo.leagues.join('\n')}">${haveInfo.count}</span>`, sort: haveInfo.count }
-    ]);
+    const have = haveDetail.get(pid)?.count || 0;
+    const vsCell   = `<span class="hover-list" title="${tooltip(info.leagues)}">${info.count}</span>`;
+    const haveCell = `<span class="hover-list" title="${tooltip(haveDetail.get(pid)?.leagues || [])}">${have}</span>`;
+    const nfl      = nflCell(pid);
+    rowsAgainst.push([name, pos, team, nfl, vsCell, haveCell]);
   }
-  rowsAgainst.sort((a, b) => (b[5].sort - a[5].sort) || a[0].localeCompare(b[0]));
+  rowsAgainst.sort((a, b) => parseInt(b[4]) - parseInt(a[4]) || a[0].localeCompare(b[0]));
   if (rowsAgainst.length === 0) {
     $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with 2+ exposures this week.</div>';
   } else {
-    renderSortableTable(
-      $('#usRootAgainstTable'),
-      ['Player','Pos','Team','NFL','Score/Proj','Leagues (Against)','Leagues (Have)'],
-      rowsAgainst,
-      ['str','str','str','str','str','num','num']
-    );
+    renderSortableTable($('#usRootAgainstTable'),
+      ['Player','Pos','Team','NFL Opp / Score','Leagues (Against)','Leagues (Have)'],
+      rowsAgainst, ['str','str','str','str','num','num']);
   }
 
-  // Projections (arrow now points TOWARD the score)
+  // Projections (arrow now points *toward* the score)
   $('#usProjTable').innerHTML = '<div class="note">Calculating projections…</div>';
-  const projRows = await userSummaryProjections(g.leagues, g.players, week);
-  renderTable($('#usProjTable'), ['League','My Proj','Opp Proj','Opponent'], projRows);
-
-  // NEW: Matchup Overview cards (Summary tab)
-  await renderUserSummaryMatchups(g.leagues, g.players, week);
+  const projRowsTbl = await userSummaryProjections(g.leagues, g.players, week);
+  renderTable($('#usProjTable'), ['League','My Proj','Opp Proj','Opponent'], projRowsTbl);
 
   // Cross-league season bye matrix
   const matrixData = byeMatrixAcrossLeagues(g.leagues, g.userId, g.players, seasonSel);
   renderByeAcrossLeagues($('#usByeMatrix'), matrixData);
+
+  // Matchup Overview cards
+  await renderUserMatchupsOverview(week);
 }
 
 async function userSummaryProjections(leagues, players, week){
@@ -508,50 +487,52 @@ async function userSummaryProjections(leagues, players, week){
     const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
 
-    // Arrow BEFORE the higher score so it points toward the number
-    const myCell  = (me  > opp) ? { html:`<span class="win-arrow">➜</span> ${me.toFixed(2)}`,  sort: me } : { html: me.toFixed(2),  sort: me };
-    const oppCell = (opp > me ) ? { html:`<span class="win-arrow">➜</span> ${opp.toFixed(2)}`, sort: opp } : { html: opp.toFixed(2), sort: opp };
+    // Arrow before the winning score, pointing toward it
+    const myCell  = (me  > opp) ? `<span class="win-arrow">➜</span> ${me.toFixed(2)}` : me.toFixed(2);
+    const oppCell = (opp > me ) ? `<span class="win-arrow">➜</span> ${opp.toFixed(2)}` : opp.toFixed(2);
 
     rows.push([league.name, myCell, oppCell, prev.opponent.team_name||'—']);
   }));
-  rows.sort((a,b)=> (parseFloat((b[1].sort ?? b[1])) - parseFloat((a[1].sort ?? a[1]))));
+  // Sort by my projected score numeric (strip HTML)
+  rows.sort((a,b)=>parseFloat(String(b[1]).replace(/[^\d.]/g,'')) - parseFloat(String(a[1]).replace(/[^\d.]/g,'')));
   return rows;
 }
 
-// NEW: Summary → Matchup Overview (cards per league)
-async function renderUserSummaryMatchups(leagues, players, week){
+// ===== Matchup Overview (User Summary → new tab) =====
+async function renderUserMatchupsOverview(week){
   const wrap = $('#usMatchups');
   if (!wrap) return;
   wrap.innerHTML = '';
-  const grid = el('div', { class: 'cards' });
-  await Promise.all(Object.values(leagues).map(async ({ league, users, rosters }) => {
-    const myRoster = rosters.find(r => r.owner_id === g.userId);
-    if (!myRoster) return;
-    const season = +league.season;
-    const scoring = league.scoring_settings || {};
-    const myUser = users.find(u => u.user_id === myRoster.owner_id) || {};
-    const myTeamName = (myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster.roster_id}`;
-    const proj = await projByPid(season, week, 'regular', players, scoring);
-    const projFn = (pid) => proj[String(pid)] || 0;
-    const prev = await matchupPreview(league.league_id, week, league, users, rosters, players, projFn, myRoster.roster_id, myTeamName);
-    const me = +prev.me.projected_total.toFixed(2);
+
+  const cards = [];
+  await Promise.all(Object.values(g.leagues).map(async ({ league, users, rosters }) => {
+    const season=+league.season; const scoring=league.scoring_settings||{};
+    const myRoster=rosters.find(r=>r.owner_id===g.userId); if(!myRoster) return;
+    const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
+    const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster.roster_id}`;
+    const proj=await projByPid(season, week, 'regular', g.players, scoring);
+    const projFn=(pid)=>proj[String(pid)]||0;
+    const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+
+    const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
+    const trend = me > opp ? 'fav' : (me < opp ? 'dog' : 'even');
 
-    const meLead = me >= opp;
-
-    const card = el('div', { class: 'card' }, [
-      el('div', { class: 'card-league', html: `${league.name}` }),
-      el('div', { class: 'card-row' }, [
-        el('div', { class: 'team-name', html: meLead ? `<span class="win-arrow">➜</span> ${prev.me.team_name||'Me'}` : `${prev.me.team_name||'Me'}` }),
-        el('div', { class: 'proj', html: me.toFixed(2) })
-      ]),
-      el('div', { class: 'card-row' }, [
-        el('div', { class: 'team-name', html: (!meLead) ? `<span class="win-arrow">➜</span> ${prev.opponent.team_name||'Opponent'}` : `${prev.opponent.team_name||'Opponent'}` }),
-        el('div', { class: 'proj', html: opp.toFixed(2) })
-      ])
+    const card = el('div', { class: `m-card ${trend}` }, [
+      el('div', { class: 'm-league', html: league.name }),
+      el('div', { class: 'm-match',  html: `${prev.me.team_name || 'Me'} vs ${prev.opponent.team_name || 'Opponent'}` }),
+      el('div', { class: 'm-scores', html:
+        `<div class="m-score"><span class="label">My Proj</span><span class="val">${me.toFixed(2)}</span></div>
+         <div class="m-score"><span class="label">Opp Proj</span><span class="val">${opp.toFixed(2)}</span></div>` })
     ]);
-    grid.append(card);
+    cards.push(card);
   }));
+
+  if (cards.length === 0){
+    wrap.innerHTML = '<div class="note">No leagues to display.</div>';
+    return;
+  }
+  const grid = el('div', { class: 'm-grid' }, cards);
   wrap.append(grid);
 }
 
@@ -637,8 +618,9 @@ async function loadTrendingAddsMap(){
       if (pid) m.set(pid, ct);
     }
   }
-  return m;
+  return m; // Map<pid, addsCount>
 }
+
 function getRosteredPidSet(rosters){
   const set = new Set();
   for (const r of rosters || []) {
@@ -648,7 +630,11 @@ function getRosteredPidSet(rosters){
   }
   return set;
 }
-function leagueAllowedPositions(league){ return activeLeaguePositions(league); }
+
+function leagueAllowedPositions(league){
+  return activeLeaguePositions(league);
+}
+
 function openLeagueTab(tabId){
   const btn = document.querySelector(`#leagueTabs .tab-btn[data-tab="${tabId}"]`);
   if (btn){
@@ -657,6 +643,7 @@ function openLeagueTab(tabId){
   }
   document.querySelectorAll('#leagueSections > section').forEach(s=>s.classList.toggle('active', s.id===tabId));
 }
+
 async function renderWaiverWire(league, rosters, season, week, scoring, preferredPos){
   const note = $('#waiverNote');
   const tableC = $('#waiverTable');
@@ -667,6 +654,7 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
 
   const proj = await projByPid(season, week, 'regular', g.players, scoring);
   const trendMap = await loadTrendingAddsMap();
+
   const rostered = getRosteredPidSet(rosters);
   const allowed = leagueAllowedPositions(league);
   const choices = ['ALL', ...allowed];
@@ -693,7 +681,15 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
     const projVal = +proj[String(pid)] || 0;
     const trend = trendMap.get(String(pid)) || 0;
 
-    items.push({ pid: String(pid), name, pos, team: m.team || 'FA', proj: projVal, trend, bye });
+    items.push({
+      pid: String(pid),
+      name,
+      pos,
+      team: m.team || 'FA',
+      proj: projVal,
+      trend,
+      bye
+    });
   }
 
   function draw(selectedPos){
@@ -708,7 +704,12 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
     }
 
     const rows = filtered.map(p => [
-      p.name,p.pos,p.team,p.proj.toFixed(2),p.trend,Number.isInteger(p.bye) ? ('W'+p.bye) : '—'
+      p.name,
+      p.pos,
+      p.team,
+      p.proj.toFixed(2),
+      p.trend,
+      Number.isInteger(p.bye) ? ('W'+p.bye) : '—'
     ]);
 
     renderSortableTable(tableC,
@@ -796,13 +797,17 @@ async function renderSelectedLeague(){
   const flagged = prev.myStart.filter(p => (p.proj || 0) === 0);
   const candidatesByPid = {};
   for (const p of flagged) {
-    const cands = allMyRows.filter(r => r.pos === p.pos && !startersSet.has(r.pid)).sort((a,b)=>b.proj - a.proj);
+    const cands = allMyRows
+      .filter(r => r.pos === p.pos && !startersSet.has(r.pid))
+      .sort((a,b)=>b.proj - a.proj);
     candidatesByPid[p.pid] = cands;
   }
   renderAlerts($('#alertsView'), { flagged, candidatesByPid, week });
 
   const alertBtn = document.querySelector('#leagueTabs .tab-btn[data-tab="tab-alerts"]');
-  if (alertBtn) { if (flagged.length > 0) alertBtn.classList.add('has-alert'); else alertBtn.classList.remove('has-alert'); }
+  if (alertBtn) {
+    if (flagged.length > 0) alertBtn.classList.add('has-alert'); else alertBtn.classList.remove('has-alert');
+  }
 
   await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
   g.waiverPref = null;
@@ -937,4 +942,15 @@ function wireEvents(){
   landingInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !landingGo.disabled) landingGo.click(); });
   landingGo.addEventListener('click', async ()=>{
     const uname=landingInput.value.trim(); if(!uname) return;
-    $('#landing').classList.add('hidden'); $('#appLayout
+    $('#landing').classList.add('hidden'); $('#appLayout').classList.remove('hidden');
+    $('#username').value = uname; $('#viewLeaguesBtn').disabled=false; await loadForUsername(uname);
+  });
+}
+
+function init(){
+  $('#appLayout').classList.add('hidden'); $('#landing').classList.remove('hidden');
+  const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o); }
+  wireEvents();
+  console.log('[MFA] ready');
+}
+window.addEventListener('DOMContentLoaded', init);
