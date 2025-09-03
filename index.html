@@ -74,11 +74,27 @@
 
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   .subhead{margin:8px 0 6px;font-size:13px;color:#8fa1ffcc;text-transform:uppercase;letter-spacing:.08em}
-  .win-arrow{ font-weight:800; margin-left:6px; color:var(--accent2) }
+  .win-arrow{ font-weight:800; margin-right:6px; color:var(--accent2) } /* arrow before score */
+
+  /* Hoverable number tooltip style (native title attr does the heavy lifting) */
+  .hover-list{ border-bottom:1px dotted #8fa1ff88; cursor:help }
 
   /* Waiver wire controls */
   .waiver-controls{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap }
   .waiver-controls .group{ min-width:160px }
+
+  /* Matchup overview cards */
+  .m-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:8px }
+  .m-card{ background:#0e1734; border:1px solid var(--border); border-radius:12px; padding:12px }
+  .m-card .m-league{ font-weight:700; margin-bottom:6px }
+  .m-card .m-match{ color:#b8c6ff; font-size:13px; margin-bottom:8px }
+  .m-card .m-scores{ display:flex; gap:16px }
+  .m-card .m-score{ background:#0b122a; border:1px solid var(--border); border-radius:10px; padding:8px 10px; flex:1 }
+  .m-card .label{ display:block; font-size:12px; color:#8fa1ff99; margin-bottom:4px }
+  .m-card .val{ font-weight:800; font-size:16px }
+  .m-card.fav{ outline:2px solid var(--accent2) }
+  .m-card.dog{ outline:2px solid #ff9f9f44 }
+  .m-card.even{ outline:2px dashed #8fa1ff55 }
 
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
 
@@ -204,6 +220,7 @@
         <button class="tab-btn active" data-tab="us-root">Rooting Interest</button>
         <button class="tab-btn" data-tab="us-proj">Projections</button>
         <button class="tab-btn" data-tab="us-byes">Bye Count</button>
+        <button class="tab-btn" data-tab="us-matchups">Matchup Overview</button>
       </div>
       <div class="sections">
         <section id="us-root" class="active">
@@ -217,6 +234,10 @@
         <section id="us-byes">
           <h3 class="subhead" style="margin-top:0;">Season Bye Matrix (All Leagues)</h3>
           <div id="usByeMatrix"></div>
+        </section>
+        <section id="us-matchups">
+          <h3 class="subhead" style="margin-top:0;">This Week’s Matchups</h3>
+          <div id="usMatchups"></div>
         </section>
       </div>
     </div>
