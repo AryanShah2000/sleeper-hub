@@ -23,7 +23,7 @@
   .inputs{display:grid;grid-template-columns:1fr 130px;gap:8px}
   .inputs > div{min-width:0}
   label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600}
-  input,select,button{background:#0e1630;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
+  input,select,button{background:#0e1630;color:#e8ecff;border:1px solid var(--border);border-radius:10px;padding:9px 10px}
   input,select{width:100%}
   #username{font-size:16px}
   button{cursor:pointer;transition:.2s;white-space:nowrap}
@@ -74,27 +74,39 @@
 
   .note{color:#8fa1ff88;font-size:13px;margin-top:8px}
   .subhead{margin:8px 0 6px;font-size:13px;color:#8fa1ffcc;text-transform:uppercase;letter-spacing:.08em}
-  .win-arrow{ font-weight:800; margin-right:6px; color:var(--accent2) } /* arrow before score */
+  .win-arrow{ font-weight:800; margin-right:6px; color:#84ffb5 } /* arrow before score */
 
-  /* Hoverable number tooltip style (native title attr does the heavy lifting) */
-  .hover-list{ border-bottom:1px dotted #8fa1ff88; cursor:help }
+  /* Hover bubble trigger */
+  .hover-bubble{ border-bottom:1px dotted #8fa1ff88; cursor:help }
+
+  /* Tooltip bubble */
+  .tt-bubble{
+    position:fixed; z-index:9999; max-width:280px;
+    background:#0e1734; border:1px solid var(--border); border-radius:10px;
+    padding:10px 12px; box-shadow:0 8px 24px rgba(0,0,0,.35); font-size:13px; color:#e8ecff;
+  }
+  .tt-bubble.hidden{ display:none }
+  .tt-row{ display:flex; gap:10px; align-items:flex-start; }
+  .tt-tag{ font-size:11px; font-weight:800; padding:3px 6px; border-radius:999px; line-height:1; margin-top:2px }
+  .tt-for{ background:#153a2a; color:#84ffb5; border:1px solid #1f6647 }
+  .tt-against{ background:#3a1522; color:#ffb3c1; border:1px solid #6b243a }
+  .tt-empty{ color:#8fa1ff88; font-style:italic }
+  .tt-bubble ul{ margin:0; padding-left:16px }
 
   /* Waiver wire controls */
   .waiver-controls{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap }
   .waiver-controls .group{ min-width:160px }
 
-  /* Matchup overview cards */
+  /* Matchup overview cards (no highlight, centered league, clickable) */
   .m-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:8px }
-  .m-card{ background:#0e1734; border:1px solid var(--border); border-radius:12px; padding:12px }
-  .m-card .m-league{ font-weight:700; margin-bottom:6px }
-  .m-card .m-match{ color:#b8c6ff; font-size:13px; margin-bottom:8px }
-  .m-card .m-scores{ display:flex; gap:16px }
-  .m-card .m-score{ background:#0b122a; border:1px solid var(--border); border-radius:10px; padding:8px 10px; flex:1 }
+  .m-card{ background:#0e1734; border:1px solid var(--border); border-radius:12px; padding:12px; cursor:pointer; transition:transform .15s }
+  .m-card:hover{ transform:translateY(-2px) }
+  .m-card .m-league{ font-weight:700; margin-bottom:6px; text-align:center }
+  .m-card .m-match{ color:#b8c6ff; font-size:13px; margin-bottom:8px; text-align:center }
+  .m-card .m-scores{ display:flex; gap:16px; justify-content:center }
+  .m-card .m-score{ background:#0b122a; border:1px solid var(--border); border-radius:10px; padding:8px 10px; min-width:110px; text-align:center }
   .m-card .label{ display:block; font-size:12px; color:#8fa1ff99; margin-bottom:4px }
   .m-card .val{ font-weight:800; font-size:16px }
-  .m-card.fav{ outline:2px solid var(--accent2) }
-  .m-card.dog{ outline:2px solid #ff9f9f44 }
-  .m-card.even{ outline:2px dashed #8fa1ff55 }
 
   footer{color:#8fa1ff55;font-size:12px;margin:16px 0 8px}
 
@@ -105,7 +117,7 @@
   .football{position:absolute; top:110px; animation:spin 3.5s linear infinite; opacity:.9}
   @keyframes spin { from{ transform:rotate(0deg) } to{ transform:rotate(360deg) } }
   .bubble{background:#0e1734; border:1px solid var(--border); border-radius:14px; padding:16px 18px; color:#c9d3ffcc}
-  .bubble .hi{font-weight:800; color:var(--text); margin-bottom:6px}
+  .bubble .hi{font-weight:800; color:#e8ecff; margin-bottom:6px}
   .landing .entry{display:flex; gap:8px; width:min(560px,90vw)}
   .landing input{flex:1}
   .muted-mini{font-size:12px; color:#8fa1ff99}
