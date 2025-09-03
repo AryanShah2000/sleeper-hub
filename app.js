@@ -118,8 +118,7 @@ async function projByPid(season, week, season_type, players, scoring) {
   return out;
 }
 
-// ===== OPTIONAL: Live-ish weekly stats for “actual” score if game started =====
-// If endpoint not available for some env, we’ll silently fall back to projections.
+// ===== Weekly stats (for live/finished score if available) =====
 async function statsRowsByPid(season, week, season_type) {
   try {
     const url = `https://api.sleeper.app/stats/nfl/${season}/${week}?season_type=${season_type}&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF`;
@@ -140,7 +139,6 @@ async function statsRowsByPid(season, week, season_type) {
 function rescoredFromStats(pid, statsRowByPid, players, scoring) {
   const row = statsRowByPid[pid];
   if (!row) return null;
-  // Some stats payloads already include fantasy points; otherwise re-score from stat components:
   const ks = ['ppr','pts_ppr','fantasy_points_ppr'];
   for (const k of ks) if (row?.[k] != null) return +row[k] || 0;
 
@@ -152,10 +150,7 @@ function rescoredFromStats(pid, statsRowByPid, players, scoring) {
   const v = (k) => +((st?.[k]) || 0);
   const sc = scoring || {};
   let pts = 0;
-  if (pos === 'K' || pos === 'DEF') {
-    // K/DEF might still have 'ppr' in row; if not, leave null to use projections
-    return null;
-  }
+  if (pos === 'K' || pos === 'DEF') return null;
   pts += v('pass_yd')*(sc.pass_yd||0) + v('pass_td')*(sc.pass_td||0) + v('pass_int')*(sc.pass_int||0) + v('pass_2pt')*(sc.pass_2pt||0);
   pts += v('rush_yd')*(sc.rush_yd||0) + v('rush_td')*(sc.rush_td||0) + v('rush_2pt')*(sc.rush_2pt||0);
   const rec = v('rec');
@@ -165,7 +160,6 @@ function rescoredFromStats(pid, statsRowByPid, players, scoring) {
   return +pts.toFixed(2);
 }
 function opponentFromProjectionRow(row) {
-  // Try a few known fields; fallback ‘—’
   const s = row?.stats || {};
   return row?.opponent || row?.opp || s?.opp || s?.opponent || '—';
 }
@@ -232,7 +226,17 @@ function renderTable(container, headers, rows){
 }
 function renderSortableTable(container, headers, rows, types){
   const table=el('table'), thead=el('thead'), tbody=el('tbody'); let sortCol=-1, sortDir='desc';
-  const parse=(v,t)=>(t==='num'?(Number.isNaN(+v)?null:+v): t==='bye'?(v&&String(v).startsWith('W')?+String(v).slice(1):Number.isNaN(+v)?null:+v) : String(v||''));
+  const parse=(v,t)=>{
+    if (t==='num'){
+      // If we embedded data-val, prefer it
+      const m=String(v).match(/data-val="(-?\d+(\.\d+)?)"/i);
+      if (m) return +m[1];
+      const d=String(v).replace(/<[^>]*>/g,'').trim();
+      const n=+d; return Number.isNaN(n)?null:n;
+    }
+    if (t==='bye'){ const d=String(v).replace(/<[^>]*>/g,''); return d&&String(d).startsWith('W')?+String(d).slice(1):Number.isNaN(+d)?null:+d; }
+    return String(v||'');
+  };
   const cmp=(a,b,t,d)=>{const mul=d==='asc'?1:-1; if(t==='str') return mul*String(a).localeCompare(String(b)); if(a==null&&b==null) return 0; if(a==null) return 1; if(b==null) return -1; return mul*(a-b);};
   function head(){ const tr=el('tr'); headers.forEach((h,i)=>{ const th=el('th'); th.classList.add('sortable'); th.append(el('span',{html:h}), el('span',{class:'arrow',html:''}));
     th.addEventListener('click',()=>{ if(sortCol===i) sortDir=sortDir==='asc'?'desc':'asc'; else{sortCol=i; sortDir='desc';} body(); arrows(); }); tr.append(th);});
@@ -337,7 +341,7 @@ function renderByePositions(container, {order,weeks,matrix}){
   renderTable(container, headers, rows);
 }
 
-// ===== Exposures (user summary) with league lists for tooltips =====
+// ===== Exposure details (with league lists) =====
 function ownedExposureDetail(leagues, userId) {
   const map = new Map(); // pid -> { count, leagues: [] }
   for (const { league, rosters } of Object.values(leagues)) {
@@ -383,37 +387,37 @@ async function opponentExposureDetail(leagues, userId, week) {
   return map;
 }
 
+// Helper: make hoverable count with league lists (both For/Against shown)
+function makeTipSpan(count, forArr, againstArr){
+  const safe = (arr)=>Array.from(new Set((arr||[]).map(s=>String(s))));
+  const f = safe(forArr).join('||');
+  const a = safe(againstArr).join('||');
+  return `<span class="tip-anchor" data-val="${count}" data-for="${encodeURIComponent(f)}" data-against="${encodeURIComponent(a)}">${count}</span>`;
+}
+
 // ===== Rooting Interest + Projections + Overview =====
 async function renderUserSummary(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
 
   const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
 
-  // Build exposure details (with league-name lists for hover)
   const haveDetail = ownedExposureDetail(g.leagues, g.userId);
   const vsDetail   = await opponentExposureDetail(g.leagues, g.userId, week);
 
-  // Preload projections + try stats for “actual if started”
-  // We also keep the original provider rows to sniff opponent hints.
+  const season = +($('#seasonMain').value || '2025');
+  const projRows = await providerRows(season, week, 'regular');
   const anyLeague = Object.values(g.leagues)[0];
   const scoringSample = anyLeague?.league?.scoring_settings || {};
-  const season = +($('#seasonMain').value || '2025');
-  const projRows = await providerRows(season, week, 'regular'); // raw rows per pid (for opp sniff)
-  const projMap  = {}; // rescored points for all pids (using sample scoring — for display only here)
-  Object.keys(projRows).forEach(pid => projMap[pid] = rescored(pid, projRows, g.players, scoringSample));
+  const projMap  = {}; Object.keys(projRows).forEach(pid => projMap[pid] = rescored(pid, projRows, g.players, scoringSample));
   const statRows = await statsRowsByPid(season, week, 'regular');
 
-  // Helper to display NFL opponent + score (actual if available; else projected)
-  function nflCell(pid) {
-    const row = projRows[pid];
-    const opp = opponentFromProjectionRow(row);
-    // Try actual (if we can rescore stats); else show projected
+  function nflOpp(pid){ return opponentFromProjectionRow(projRows[pid]); }
+  function nflScore(pid){
     const actual = rescoredFromStats(pid, statRows, g.players, scoringSample);
-    if (actual != null) return `${opp} — ${actual.toFixed(2)}`;
+    if (actual != null) return `<span data-val="${actual}">${actual.toFixed(2)}</span>`;
     const proj = projMap[pid] != null ? projMap[pid] : 0;
-    return `${opp} — ${proj.toFixed(2)} <span class="note">(Proj)</span>`;
+    return `<span data-val="${proj}">${proj.toFixed(2)} <span class="note">(Proj)</span></span>`;
   }
-  const tooltip = (names=[]) => names.length ? names.sort().join('\n') : '—';
 
   // Root For
   const rowsFor = [];
@@ -421,21 +425,25 @@ async function renderUserSummary(){
     if (info.count < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
-    const pos = (m.position || 'UNK').toUpperCase();
     const team = m.team || 'FA';
-    const vs = vsDetail.get(pid)?.count || 0;
-    const haveCell = `<span class="hover-list" title="${tooltip(info.leagues)}">${info.count}</span>`;
-    const vsCell   = `<span class="hover-list" title="${tooltip(vsDetail.get(pid)?.leagues || [])}">${vs}</span>`;
-    const nfl      = nflCell(pid);
-    rowsFor.push([name, pos, team, nfl, haveCell, vsCell]);
+    const vsInfo = vsDetail.get(pid) || { count: 0, leagues: [] };
+    const nflO = nflOpp(pid);
+    const score = nflScore(pid);
+    const forSpan = makeTipSpan(info.count, info.leagues, vsInfo.leagues);
+    const againstSpan = makeTipSpan(vsInfo.count, info.leagues, vsInfo.leagues);
+    rowsFor.push([name, team, nflO, score, forSpan, againstSpan]);
   }
-  rowsFor.sort((a, b) => parseInt(b[4]) - parseInt(a[4]) || a[0].localeCompare(b[0]));
+  rowsFor.sort((a, b) => {
+    const ax = +(String(a[4]).match(/data-val="(\d+)/)?.[1] || 0);
+    const bx = +(String(b[4]).match(/data-val="(\d+)/)?.[1] || 0);
+    return bx - ax || String(a[0]).localeCompare(String(b[0]));
+  });
   if (rowsFor.length === 0) {
     $('#usRootForTable').innerHTML = '<div class="note">No players with 2+ exposures.</div>';
   } else {
     renderSortableTable($('#usRootForTable'),
-      ['Player','Pos','Team','NFL Opp / Score','Leagues (Have)','Leagues (Against)'],
-      rowsFor, ['str','str','str','str','num','num']);
+      ['Player','Team','NFL Opp','Score','For','Against'],
+      rowsFor, ['str','str','str','num','num','num']);
   }
 
   // Root Against
@@ -444,24 +452,28 @@ async function renderUserSummary(){
     if (info.count < 2) continue;
     const m = g.players[pid] || {};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
-    const pos = (m.position || 'UNK').toUpperCase();
     const team = m.team || 'FA';
-    const have = haveDetail.get(pid)?.count || 0;
-    const vsCell   = `<span class="hover-list" title="${tooltip(info.leagues)}">${info.count}</span>`;
-    const haveCell = `<span class="hover-list" title="${tooltip(haveDetail.get(pid)?.leagues || [])}">${have}</span>`;
-    const nfl      = nflCell(pid);
-    rowsAgainst.push([name, pos, team, nfl, vsCell, haveCell]);
+    const haveInfo = haveDetail.get(pid) || { count: 0, leagues: [] };
+    const nflO = nflOpp(pid);
+    const score = nflScore(pid);
+    const againstSpan = makeTipSpan(info.count, haveInfo.leagues, info.leagues);
+    const forSpan = makeTipSpan(haveInfo.count, haveInfo.leagues, info.leagues);
+    rowsAgainst.push([name, team, nflO, score, againstSpan, forSpan]);
   }
-  rowsAgainst.sort((a, b) => parseInt(b[4]) - parseInt(a[4]) || a[0].localeCompare(b[0]));
+  rowsAgainst.sort((a, b) => {
+    const ax = +(String(a[4]).match(/data-val="(\d+)/)?.[1] || 0);
+    const bx = +(String(b[4]).match(/data-val="(\d+)/)?.[1] || 0);
+    return bx - ax || String(a[0]).localeCompare(String(b[0]));
+  });
   if (rowsAgainst.length === 0) {
     $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with 2+ exposures this week.</div>';
   } else {
     renderSortableTable($('#usRootAgainstTable'),
-      ['Player','Pos','Team','NFL Opp / Score','Leagues (Against)','Leagues (Have)'],
-      rowsAgainst, ['str','str','str','str','num','num']);
+      ['Player','Team','NFL Opp','Score','Against','For'],
+      rowsAgainst, ['str','str','str','num','num','num']);
   }
 
-  // Projections (arrow now points *toward* the score)
+  // Projections (unchanged except arrow direction already fixed previously)
   $('#usProjTable').innerHTML = '<div class="note">Calculating projections…</div>';
   const projRowsTbl = await userSummaryProjections(g.leagues, g.players, week);
   renderTable($('#usProjTable'), ['League','My Proj','Opp Proj','Opponent'], projRowsTbl);
@@ -487,25 +499,23 @@ async function userSummaryProjections(leagues, players, week){
     const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
 
-    // Arrow before the winning score, pointing toward it
     const myCell  = (me  > opp) ? `<span class="win-arrow">➜</span> ${me.toFixed(2)}` : me.toFixed(2);
     const oppCell = (opp > me ) ? `<span class="win-arrow">➜</span> ${opp.toFixed(2)}` : opp.toFixed(2);
 
     rows.push([league.name, myCell, oppCell, prev.opponent.team_name||'—']);
   }));
-  // Sort by my projected score numeric (strip HTML)
   rows.sort((a,b)=>parseFloat(String(b[1]).replace(/[^\d.]/g,'')) - parseFloat(String(a[1]).replace(/[^\d.]/g,'')));
   return rows;
 }
 
-// ===== Matchup Overview (User Summary → new tab) =====
+// ===== Matchup Overview (uniform cards + click to open league) =====
 async function renderUserMatchupsOverview(week){
   const wrap = $('#usMatchups');
   if (!wrap) return;
   wrap.innerHTML = '';
 
   const cards = [];
-  await Promise.all(Object.values(g.leagues).map(async ({ league, users, rosters }) => {
+  await Promise.all(Object.entries(g.leagues).map(async ([lid, { league, users, rosters }]) => {
     const season=+league.season; const scoring=league.scoring_settings||{};
     const myRoster=rosters.find(r=>r.owner_id===g.userId); if(!myRoster) return;
     const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
@@ -516,15 +526,26 @@ async function renderUserMatchupsOverview(week){
 
     const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
-    const trend = me > opp ? 'fav' : (me < opp ? 'dog' : 'even');
 
-    const card = el('div', { class: `m-card ${trend}` }, [
+    const card = el('div', { class: 'm-card', 'data-lid': lid }, [
       el('div', { class: 'm-league', html: league.name }),
       el('div', { class: 'm-match',  html: `${prev.me.team_name || 'Me'} vs ${prev.opponent.team_name || 'Opponent'}` }),
       el('div', { class: 'm-scores', html:
         `<div class="m-score"><span class="label">My Proj</span><span class="val">${me.toFixed(2)}</span></div>
          <div class="m-score"><span class="label">Opp Proj</span><span class="val">${opp.toFixed(2)}</span></div>` })
     ]);
+    card.addEventListener('click', async ()=>{
+      // jump to this league
+      g.mode='league'; g.selected=lid;
+      // mark sidebar active
+      document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
+      const side = document.querySelector(`.league-item[data-id="${lid}"]`);
+      if (side) side.classList.add('active');
+      $('#summaryItem').classList.remove('active');
+      await renderSelectedLeague();
+      // scroll sidebar to the selected league (optional nicety)
+      side?.scrollIntoView?.({ block:'nearest' });
+    });
     cards.push(card);
   }));
 
@@ -853,6 +874,38 @@ async function loadForUsername(uname){
   }
 }
 
+// ===== Tooltip bubble (For/Against league lists) =====
+function ensureTooltip(){
+  if ($('#tooltipBubble')) return $('#tooltipBubble');
+  const tip = el('div', { id:'tooltipBubble', class:'tooltip hidden' });
+  document.body.appendChild(tip);
+  return tip;
+}
+function showTooltip(e, forStr, againstStr){
+  const tip = ensureTooltip();
+  const forList = decodeURIComponent(forStr||'').split('||').filter(Boolean);
+  const againstList = decodeURIComponent(againstStr||'').split('||').filter(Boolean);
+  const fmt = (arr)=>arr.length? `<ul>${arr.sort().map(x=>`<li>${x}</li>`).join('')}</ul>` : '<div class="note">None</div>';
+  tip.innerHTML = `<div class="tip-grid">
+    <div><div class="tip-title">For</div>${fmt(forList)}</div>
+    <div><div class="tip-title">Against</div>${fmt(againstList)}</div>
+  </div>`;
+  tip.classList.remove('hidden');
+  positionTooltip(e, tip);
+}
+function hideTooltip(){
+  const tip = $('#tooltipBubble'); if (tip) tip.classList.add('hidden');
+}
+function positionTooltip(e, tip){
+  const pad = 10;
+  const { clientX:x, clientY:y } = e;
+  const w = tip.offsetWidth || 240, h = tip.offsetHeight || 120;
+  let left = x + pad, top = y + pad;
+  if (left + w > window.innerWidth) left = x - w - pad;
+  if (top + h > window.innerHeight) top = y - h - pad;
+  tip.style.left = left + 'px'; tip.style.top = top + 'px';
+}
+
 // ===== Events & init =====
 function wireEvents(){
   $('#weekSelect').addEventListener('change', async ()=>{
@@ -934,6 +987,19 @@ function wireEvents(){
         g.waiverPref = null;
       }
     }
+  });
+
+  // Tooltip handlers (For/Against numbers)
+  document.addEventListener('mousemove', (e)=>{
+    const a = e.target.closest('.tip-anchor');
+    if (a) {
+      showTooltip(e, a.getAttribute('data-for')||'', a.getAttribute('data-against')||'');
+    } else {
+      hideTooltip();
+    }
+  });
+  document.addEventListener('mouseleave', (e)=>{
+    if (!e.relatedTarget) hideTooltip();
   });
 
   // Landing
