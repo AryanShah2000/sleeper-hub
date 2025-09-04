@@ -882,19 +882,26 @@ async function loadForUsername(uname){
   resetMain();
   status('', 'Looking up your leagues…');
   try{
+    console.log('Step 1: Loading players...');
     if(!g.players) g.players = await loadPlayersMap();
+    console.log('Step 2: Resolving user ID for:', uname);
     const uid = await resolveUserId(uname);
+    console.log('Step 3: User ID resolved to:', uid);
     if(!uid){ status('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
     g.userId = uid;
 
     const season = $('#seasonMain').value || '2025';
+    console.log('Step 4: Loading leagues for season:', season);
     const leagues = await loadMyLeagues(uid, season);
+    console.log('Step 5: Leagues loaded:', leagues);
     if(!Array.isArray(leagues) || leagues.length===0){
       status('err', `No leagues found in ${season}.`);
       $('#leagueList').innerHTML=''; return;
     }
+    console.log('Step 6: Loading league bundles...');
     g.leagues = {};
     await Promise.all(leagues.map(async (L)=>{ g.leagues[L.league_id] = await loadLeagueBundle(L.league_id); }));
+    console.log('Step 7: League bundles loaded');
     setWeekOptions(); showControls();
 
     const sm=$('#summaryItem'); sm.classList.remove('hidden'); sm.classList.add('active');
@@ -909,7 +916,8 @@ async function loadForUsername(uname){
     await updateLeagueAlertBadges(week);
 
   }catch(err){
-    status('err','Failed to load leagues.');
+    console.error('League loading error:', err);
+    status('err', `Failed to load leagues: ${err.message || err}`);
   }
 }
 
