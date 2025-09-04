@@ -28,7 +28,7 @@ All application logic. Pure front‑end JavaScript (no frameworks) organized int
 - Exposure / Rooting Interest: cross‑league counts of players you roster vs players your opponents are starting in the current week; drives “Who to Root For/Against” tables with hover tooltips listing league names.
 - Matchup previews: derives opponent roster for given week, builds starter projection tables, and creates summary cards for all leagues.
 - Alerts system: flags starters with 0 projected points and suggests bench replacements at the same position (sortable tables inside collapsible details elements).
-- Waiver Wire: filters unrostered projected players matching allowed positions; merges in 24h trending add counts; sortable & position‑filterable.
+- Waiver Wire: filters unrostered projected players matching allowed positions; sortable & position‑filterable (trending add counts removed for simplicity).
 - Tooltip engine: lightweight custom hover bubble listing leagues for For/Against exposures.
 - Event wiring: week & season selectors, league selection, tab navigation, landing flow, manual league add, “jump to waivers” links from alerts.
 - Rendering helpers: generic sortable table builder, matchup tables, roster tables, positional strength tables, bye matrices, and matchup overview card grid.

@@ -703,7 +703,7 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
   tableC.innerHTML = '';
 
   const proj = await projByPid(season, week, 'regular', g.players, scoring);
-  const trendMap = await loadTrendingAddsMap();
+  // Removed trending adds column / fetch for simplicity
 
   const rostered = getRosteredPidSet(rosters);
   const allowed = leagueAllowedPositions(league);
@@ -729,7 +729,6 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
 
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const projVal = +proj[String(pid)] || 0;
-    const trend = trendMap.get(String(pid)) || 0;
 
     items.push({
       pid: String(pid),
@@ -737,7 +736,6 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
       pos,
       team: m.team || 'FA',
       proj: projVal,
-      trend,
       bye
     });
   }
@@ -745,7 +743,7 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
   function draw(selectedPos){
     const filtered = items
       .filter(it => selectedPos === 'ALL' || it.pos === selectedPos)
-      .sort((a,b)=> b.proj - a.proj || b.trend - a.trend || a.name.localeCompare(b.name))
+      .sort((a,b)=> b.proj - a.proj || a.name.localeCompare(b.name))
       .slice(0, 50);
 
     if (filtered.length === 0) {
@@ -758,13 +756,12 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
       p.pos,
       p.team,
       p.proj.toFixed(2),
-      p.trend,
       Number.isInteger(p.bye) ? ('W'+p.bye) : '—'
     ]);
 
     renderSortableTable(tableC,
-      ['Player','Pos','Team','Proj (W'+week+')','Trend (adds/24h)','Bye'],
-      rows, ['str','str','str','num','num','bye']);
+      ['Player','Pos','Team','Proj (W'+week+')','Bye'],
+      rows, ['str','str','str','num','bye']);
   }
 
   draw(posSel.value || choices[0]);
