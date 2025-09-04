@@ -380,6 +380,35 @@ async function renderUserSummary(){
   // Cross-league season bye matrix
   const matrixData = byeMatrixAcrossLeagues(g.leagues, g.userId, g.players, seasonSel);
   renderByeAcrossLeagues($('#usByeMatrix'), matrixData);
+  // Matchup overview cards
+  await renderUserMatchups(week, seasonSel);
+}
+
+// Render simple matchup cards per league for the user summary
+async function renderUserMatchups(week, season){
+  const container = $('#usMatchups'); if(!container) return;
+  container.innerHTML = '';
+  const entries = Object.values(g.leagues);
+  for (const entry of entries){
+    const { league, users, rosters } = entry;
+    try{
+      const myRoster = rosters.find(r=>r.owner_id===g.userId) || rosters[0];
+      const myUser = users.find(u=>u.user_id===myRoster.owner_id) || {};
+      const myTeamName = myUser.metadata?.team_name || myUser.display_name || `Team ${myRoster.roster_id}`;
+      const proj = await projByPid(+league.season, week, 'regular', g.players, league.scoring_settings||{});
+      const projFn = pid => proj[String(pid)]||0;
+      const prev = await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+
+      const card = el('div',{class:'matchup-card'},[
+        el('div',{class:'mc-head', html: `${league.name} • ${league.season}`}),
+        el('div',{class:'mc-body'},[
+          el('div',{class:'mc-line', html:`<strong>${prev.me.team_name || 'Me'}</strong>: ${Number(prev.me.projected_total).toFixed(2)}`}),
+          el('div',{class:'mc-line', html:`<strong>${prev.opponent.team_name || 'Opponent'}</strong>: ${Number(prev.opponent.projected_total).toFixed(2)}`})
+        ])
+      ]);
+      container.append(card);
+    }catch(e){ console.warn('renderUserMatchups failed for', league?.league_id, e); }
+  }
 }
 
 async function userSummaryProjections(leagues, players, week){

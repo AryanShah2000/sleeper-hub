@@ -91,6 +91,11 @@
   .muted-mini{font-size:12px; color:#8fa1ff99}
 
   .hidden{display:none}
+  /* Matchup overview cards */
+  .matchup-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:8px}
+  .matchup-card{background:#07102a;border:1px solid var(--border);border-radius:10px;padding:10px}
+  .matchup-card .mc-head{font-weight:700;margin-bottom:8px}
+  .matchup-card .mc-line{font-size:13px;margin:4px 0}
 </style>
 </head>
 <body>
@@ -200,6 +205,7 @@
         <button class="tab-btn active" data-tab="us-root">Rooting Interest</button>
         <button class="tab-btn" data-tab="us-proj">Projections</button>
         <button class="tab-btn" data-tab="us-byes">Bye Count</button>
+        <button class="tab-btn" data-tab="us-matchups">Matchup Overview</button>
       </div>
       <div class="sections">
         <section id="us-root" class="active">
@@ -209,11 +215,12 @@
           <h3 class="subhead" style="margin-top:14px;">Who to Root Against</h3>
           <div id="usRootAgainstTable"></div>
         </section>
-        <section id="us-proj"><div id="usProjTable"></div></section>
-        <section id="us-byes">
+  <section id="us-proj"><div id="usProjTable"></div></section>
+  <section id="us-byes">
           <h3 class="subhead" style="margin-top:0;">Season Bye Matrix (All Leagues)</h3>
           <div id="usByeMatrix"></div>
         </section>
+  <section id="us-matchups"><div id="usMatchups" class="matchup-grid"></div></section>
       </div>
     </div>
 
