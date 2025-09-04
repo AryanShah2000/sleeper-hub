@@ -291,7 +291,20 @@
           </div>
           <div id="waiverTable" style="margin-top:8px"></div>
         </section>
-        <section id="tab-transactions"><div id="transactionsTable"></div></section>
+        <section id="tab-transactions">
+          <div class="waiver-controls" style="margin-bottom:10px">
+            <div class="group">
+              <label for="txnType">Transaction Type</label>
+              <select id="txnType">
+                <option value="all">All</option>
+                <option value="trade">Trades</option>
+                <option value="add">Adds</option>
+                <option value="drop">Drops</option>
+              </select>
+            </div>
+          </div>
+          <div id="transactionsTable"></div>
+        </section>
       </div>
     </div>
 

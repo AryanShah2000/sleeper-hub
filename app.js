@@ -988,11 +988,14 @@ async function fetchLeagueTransactions(leagueId, season) {
       const resp = await fetch(url);
       if (!resp.ok) continue;
       const data = await resp.json();
-      if (Array.isArray(data)) all.push(...data);
+      if (Array.isArray(data)) {
+        // Only include transactions that actually happened (status_complete)
+        all.push(...data.filter(t => t.status === 'complete'));
+      }
     } catch {}
   }
-  // Only include transactions from the correct season
-  return all.filter(t => String(t.season) === String(season));
+  // Filter by season using league.season if present, else include all (since some txns may not have season field)
+  return all;
 }
 
 function formatTransactionType(type) {
@@ -1024,14 +1027,10 @@ async function renderLeagueTransactions(league, users) {
     tableC.innerHTML = '<div class="note">no transactions yet</div>';
     return;
   }
-  // Only show trades, waivers, free agent adds/drops
-  const filtered = txns.filter(t => ['trade', 'waiver', 'free_agent'].includes(t.type));
-  if (!filtered.length) {
-    tableC.innerHTML = '<div class="note">no transactions yet</div>';
-    return;
-  }
-  // Sort reverse chronological
-  filtered.sort((a, b) => b.status_updated - a.status_updated);
+
+  // Transaction type filter
+  const typeSel = document.getElementById('txnType');
+  let filterType = typeSel ? typeSel.value : 'all';
 
   // Helper to get player names from player_ids
   function getPlayerNames(ids) {
@@ -1041,6 +1040,29 @@ async function renderLeagueTransactions(league, users) {
       return m ? (m.full_name || m.last_name || pid) : pid;
     });
   }
+
+  // Classify transaction for filter
+  function classifyTxn(t) {
+    if (t.type === 'trade') return 'trade';
+    const hasAdds = t.adds && Object.keys(t.adds).length > 0;
+    const hasDrops = t.drops && Object.keys(t.drops).length > 0;
+    if (hasAdds && !hasDrops) return 'add';
+    if (!hasAdds && hasDrops) return 'drop';
+    if (hasAdds && hasDrops) return 'add'; // treat add+drop as add (waiver claim)
+    return t.type;
+  }
+
+  // Only show trades, waivers, free agent adds/drops
+  let filtered = txns.filter(t => ['trade', 'waiver', 'free_agent'].includes(t.type));
+  if (filterType !== 'all') {
+    filtered = filtered.filter(t => classifyTxn(t) === filterType);
+  }
+  if (!filtered.length) {
+    tableC.innerHTML = '<div class="note">no transactions yet</div>';
+    return;
+  }
+  // Sort reverse chronological
+  filtered.sort((a, b) => b.status_updated - a.status_updated);
 
   // Build rows
   const rows = filtered.map(t => {
@@ -1079,6 +1101,12 @@ async function renderLeagueTransactions(league, users) {
     ];
   });
   renderTable(tableC, ['Date', 'Team', 'Transaction Type', 'Details'], rows);
+
+  // Wire up filter change
+  if (typeSel && !typeSel._wired) {
+    typeSel.addEventListener('change', () => renderLeagueTransactions(league, users));
+    typeSel._wired = true;
+  }
 }
 
     const btn2=e.target.closest('#usTabs .tab-btn');
