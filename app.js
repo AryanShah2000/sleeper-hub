@@ -774,6 +774,13 @@ function resetMain(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
   ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#alertsView','#usRootForTable','#usRootAgainstTable','#usProjTable','#usByeMatrix','#waiverTable','#usMatchups'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
 }
+function rosterRecord(roster) {
+  if (!roster || !roster.settings) return '';
+  const wins = roster.settings.wins || 0;
+  const losses = roster.settings.losses || 0;
+  const ties = roster.settings.ties || 0;
+  return ties > 0 ? `(${wins}-${losses}-${ties})` : `(${wins}-${losses})`;
+}
 function renderLeagueList(active=null){
   const list=$('#leagueList'); list.innerHTML=''; const ids=Object.keys(g.leagues);
   if(ids.length===0){ list.append(el('div',{class:'li-sub',html:'No leagues loaded yet.'})); return; }
