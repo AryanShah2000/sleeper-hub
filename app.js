@@ -945,18 +945,32 @@ async function loadForUsername(uname){
   status('', 'Looking up your leagues…');
   try{
     if(!g.players) g.players = await loadPlayersMap();
+    console.log('[MFA] Players loaded:', g.players ? Object.keys(g.players).length : 'none');
     const uid = await resolveUserId(uname);
+    console.log('[MFA] Resolved user id:', uid);
     if(!uid){ status('err', `Couldn’t find a Sleeper account for “${uname}”.`); return; }
     g.userId = uid;
 
     const season = $('#seasonMain').value || '2025';
     const leagues = await loadMyLeagues(uid, season);
+    console.log('[MFA] Leagues fetched:', leagues);
     if(!Array.isArray(leagues) || leagues.length===0){
       status('err', `No leagues found in ${season}.`);
       $('#leagueList').innerHTML=''; return;
     }
     g.leagues = {};
-    await Promise.all(leagues.map(async (L)=>{ g.leagues[L.league_id] = await loadLeagueBundle(L.league_id); }));
+    await Promise.all(leagues.map(async (L)=>{
+      try {
+        const bundle = await loadLeagueBundle(L.league_id);
+        if (!bundle || !bundle.league || !Array.isArray(bundle.users) || !Array.isArray(bundle.rosters)) {
+          console.error('[MFA] Invalid league bundle:', bundle, L);
+          throw new Error('Invalid league bundle');
+        }
+        g.leagues[L.league_id] = bundle;
+      } catch (e) {
+        console.error('[MFA] Failed to load league bundle for', L.league_id, e);
+      }
+    }));
     setWeekOptions(); showControls();
 
     const sm=$('#summaryItem'); sm.classList.remove('hidden'); sm.classList.add('active');
@@ -965,7 +979,7 @@ async function loadForUsername(uname){
     renderLeagueList();
     g.mode='summary';
     await renderUserSummary();
-    status('ok', `Loaded ${leagues.length} league(s).`);
+    status('ok', `Loaded ${Object.keys(g.leagues).length} league(s).`);
 
     const week=+($('#weekSelect').value||1);
     await updateLeagueAlertBadges(week);
