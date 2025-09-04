@@ -517,6 +517,12 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
   const tableC = $('#waiverTable');
   const posSel = $('#waiverPos');
 
+  // If the HTML doesn't include the waiver UI (some variants omit it), skip rendering.
+  if (!note || !tableC || !posSel) {
+    console.warn('renderWaiverWire: waiver DOM elements not found, skipping.');
+    return;
+  }
+
   note.textContent = `Week ${week} • ${league.name} scoring`;
   tableC.innerHTML = '';
 
@@ -616,83 +622,97 @@ function renderLeagueList(active=null){
       el('span',{class:'alert-badge hidden', 'aria-label':'Alerts for this league', title:'Starters with 0 projected points'},'0')
     ]);
     item.addEventListener('click', async ()=>{
-      g.mode='league'; g.selected=id;
-      document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
-      item.classList.add('active'); $('#summaryItem').classList.remove('active');
-      await renderSelectedLeague();
+      try {
+        console.log('League click:', id);
+        g.mode='league'; g.selected=id;
+        document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
+        item.classList.add('active'); $('#summaryItem').classList.remove('active');
+        await renderSelectedLeague();
+      } catch (err) {
+        console.error('Error rendering league on click:', err);
+        status('err', `Failed to open league: ${err.message || err}`);
+      }
     });
     list.append(item);
   });
 }
 
 async function renderSelectedLeague(){
-  const id=g.selected; if(!id) return; const {league,users,rosters}=g.leagues[id];
-  const season=+league.season; const week=+($('#weekSelect').value||1);
-  const myRoster=rosters.find(r=>r.owner_id===g.userId) || rosters[0];
-  const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
-  const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster.roster_id}`;
+  try {
+    const id=g.selected; if(!id) return; const {league,users,rosters}=g.leagues[id];
+    const season=+league.season; const week=+($('#weekSelect').value||1);
+    const myRoster=rosters.find(r=>r.owner_id===g.userId) || rosters[0];
+    const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
+    const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster.roster_id}`;
 
-  // Context text + positions summary
-  $('#contextNote').textContent = `${league.name} • ${league.season}`;
-  $('#posNote').textContent = `Roster slots: ${rosterPositionsSummary(league)}`;
+    // Context text + positions summary
+    $('#contextNote').textContent = `${league.name} • ${league.season}`;
+    $('#posNote').textContent = `Roster slots: ${rosterPositionsSummary(league)}`;
 
-  // Roster table
-  renderRoster($('#rosterTable'), myRoster, g.players, season);
+    // Roster table
+    renderRoster($('#rosterTable'), myRoster, g.players, season);
 
-  // Projections for this league/week
-  const scoring=league.scoring_settings||{}; 
-  const proj=await projByPid(season, week, 'regular', g.players, scoring);
-  const projFn=(pid)=>proj[String(pid)]||0;
+    // Projections for this league/week
+    const scoring=league.scoring_settings||{}; 
+    const proj=await projByPid(season, week, 'regular', g.players, scoring);
+    const projFn=(pid)=>proj[String(pid)]||0;
 
-  // Team projections (dynamic positions)
-  const vals=rosters.reduce((acc,r)=>{ acc[r.roster_id]=teamPosValues(league, rosterRows(r,g.players,projFn)); return acc; },{});
-  const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
-  const orderPure = ['QB','RB','WR','TE','K','DEF'].filter(k => rp.includes(k));
-  const orderFlex = []; if (rp.includes('FLEX')) orderFlex.push('FLEX'); if (rp.includes('SUPER_FLEX')) orderFlex.push('SUPER_FLEX');
-  const order = [...orderPure, ...orderFlex];
+    // Team projections (dynamic positions)
+    const vals=rosters.reduce((acc,r)=>{ acc[r.roster_id]=teamPosValues(league, rosterRows(r,g.players,projFn)); return acc; },{});
+    const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
+    const orderPure = ['QB','RB','WR','TE','K','DEF'].filter(k => rp.includes(k));
+    const orderFlex = []; if (rp.includes('FLEX')) orderFlex.push('FLEX'); if (rp.includes('SUPER_FLEX')) orderFlex.push('SUPER_FLEX');
+    const order = [...orderPure, ...orderFlex];
 
-  const posStats={};
-  const allRosters = rosters.map(r => r.roster_id);
-  for (const pos of order){
-    const list = rosters.map(r => (vals[r.roster_id][pos] || 0));
-    const my = list[allRosters.indexOf(myRoster.roster_id)] || 0;
-    const {rank,out_of,pct}=rankPct(list,my);
-    posStats[pos]={ my_value:+(+my).toFixed(2), rank, out_of, percentile:pct};
+    const posStats={};
+    const allRosters = rosters.map(r => r.roster_id);
+    for (const pos of order){
+      const list = rosters.map(r => (vals[r.roster_id][pos] || 0));
+      const my = list[allRosters.indexOf(myRoster.roster_id)] || 0;
+      const {rank,out_of,pct}=rankPct(list,my);
+      posStats[pos]={ my_value:+(+my).toFixed(2), rank, out_of, percentile:pct};
+    }
+    renderPos($('#posTable'), posStats, order);
+
+    // Matchup preview
+    const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+    renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
+
+    // League-specific Bye Matrix (by position groups)
+    const byeData = byeMatrixByPosition(myRoster, g.players, season, league);
+    renderByePositions($('#byeMatrix'), byeData);
+
+    // Alerts content + badge on tab
+    const startersSet = new Set(prev.myStart.map(p => p.pid));
+    const allMyRows = rosterRows(myRoster, g.players, projFn);
+    const flagged = prev.myStart.filter(p => (p.proj || 0) === 0);
+    const candidatesByPid = {};
+    for (const p of flagged) {
+      const cands = allMyRows
+        .filter(r => r.pos === p.pos && !startersSet.has(r.pid))
+        .sort((a,b)=>b.proj - a.proj);
+      candidatesByPid[p.pid] = cands;
+    }
+    renderAlerts($('#alertsView'), { flagged, candidatesByPid, week });
+
+    const alertBtn = document.querySelector('#leagueTabs .tab-btn[data-tab="tab-alerts"]');
+    if (alertBtn) {
+      if (flagged.length > 0) alertBtn.classList.add('has-alert'); else alertBtn.classList.remove('has-alert');
+    }
+
+    // Waiver Wire render (use any preferred pos jump from Alerts)
+    // Only attempt if the waiver UI exists in the DOM (some HTML variants omit it)
+    if (document.querySelector('#waiverTable') || document.querySelector('#tab-waivers')){
+      await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
+      g.waiverPref = null; // consume one-shot preference
+    }
+
+    $('#userSummary').classList.add('hidden');
+    $('#leagueViews').classList.remove('hidden');
+  } catch (err) {
+    console.error('Error in renderSelectedLeague:', err);
+    status('err', `Error rendering league: ${err.message || err}`);
   }
-  renderPos($('#posTable'), posStats, order);
-
-  // Matchup preview
-  const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
-  renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
-
-  // League-specific Bye Matrix (by position groups)
-  const byeData = byeMatrixByPosition(myRoster, g.players, season, league);
-  renderByePositions($('#byeMatrix'), byeData);
-
-  // Alerts content + badge on tab
-  const startersSet = new Set(prev.myStart.map(p => p.pid));
-  const allMyRows = rosterRows(myRoster, g.players, projFn);
-  const flagged = prev.myStart.filter(p => (p.proj || 0) === 0);
-  const candidatesByPid = {};
-  for (const p of flagged) {
-    const cands = allMyRows
-      .filter(r => r.pos === p.pos && !startersSet.has(r.pid))
-      .sort((a,b)=>b.proj - a.proj);
-    candidatesByPid[p.pid] = cands;
-  }
-  renderAlerts($('#alertsView'), { flagged, candidatesByPid, week });
-
-  const alertBtn = document.querySelector('#leagueTabs .tab-btn[data-tab="tab-alerts"]');
-  if (alertBtn) {
-    if (flagged.length > 0) alertBtn.classList.add('has-alert'); else alertBtn.classList.remove('has-alert');
-  }
-
-  // Waiver Wire render (use any preferred pos jump from Alerts)
-  await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
-  g.waiverPref = null; // consume one-shot preference
-
-  $('#userSummary').classList.add('hidden');
-  $('#leagueViews').classList.remove('hidden');
 }
 
 // ===== Shared loader (landing + sidebar button) =====
