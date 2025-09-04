@@ -971,8 +971,79 @@ function wireEvents(){
         await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
         g.waiverPref = null;
       }
+      if (id === 'tab-transactions' && g.mode==='league' && g.selected) {
+        const { league, users } = g.leagues[g.selected];
+        await renderLeagueTransactions(league, users);
+      }
       return;
     }
+// ===== Transactions Page =====
+async function fetchLeagueTransactions(leagueId) {
+  // Fetches the most recent 100 transactions (can be adjusted)
+  try {
+    const url = `https://api.sleeper.app/v1/league/${leagueId}/transactions/1`; // 1 = week 1, but Sleeper returns all for season
+    const resp = await fetch(url);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatTransactionType(type) {
+  if (type === 'trade') return 'Trade';
+  if (type === 'waiver') return 'Waiver';
+  if (type === 'free_agent') return 'Free Agent';
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function formatDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function getTeamName(users, rosterId, ownerId) {
+  // Try to get display name or team name from users list
+  const user = users.find(u => u.user_id === ownerId);
+  if (user) return user.metadata?.team_name || user.display_name || `Team ${rosterId}`;
+  return `Team ${rosterId}`;
+}
+
+async function renderLeagueTransactions(league, users) {
+  const tableC = document.getElementById('transactionsTable');
+  tableC.innerHTML = '<div class="note">Loading transactions…</div>';
+  const txns = await fetchLeagueTransactions(league.league_id);
+  if (!txns.length) {
+    tableC.innerHTML = '<div class="note">no transactions yet</div>';
+    return;
+  }
+  // Only show trades, waivers, free agent adds/drops
+  const filtered = txns.filter(t => ['trade', 'waiver', 'free_agent'].includes(t.type));
+  if (!filtered.length) {
+    tableC.innerHTML = '<div class="note">no transactions yet</div>';
+    return;
+  }
+  // Sort reverse chronological
+  filtered.sort((a, b) => b.status_updated - a.status_updated);
+  // Build rows
+  const rows = filtered.map(t => {
+    // For trades, show all involved teams; for waivers/free_agent, show creator
+    let team = '';
+    if (t.type === 'trade' && Array.isArray(t.roster_ids)) {
+      team = t.roster_ids.map(rid => getTeamName(users, rid, t.creator)).join(', ');
+    } else {
+      team = getTeamName(users, t.roster_ids?.[0] || '', t.creator);
+    }
+    return [
+      formatDate(t.status_updated),
+      team,
+      formatTransactionType(t.type)
+    ];
+  });
+  renderTable(tableC, ['Date', 'Team', 'Transaction Type'], rows);
+}
 
     const btn2=e.target.closest('#usTabs .tab-btn');
     if(btn2){
