@@ -1021,8 +1021,8 @@ function getTeamName(users, rosterId, ownerId) {
 async function renderLeagueTransactions(league, users) {
   const tableC = document.getElementById('transactionsTable');
   tableC.innerHTML = '<div class="note">Loading transactions…</div>';
-  const season = document.getElementById('seasonMain')?.value || league.season;
-  const txns = await fetchLeagueTransactions(league.league_id, season);
+  // Fetch all transactions for all weeks, all seasons
+  const txns = await fetchLeagueTransactions(league.league_id, null);
   if (!txns.length) {
     tableC.innerHTML = '<div class="note">no transactions yet</div>';
     return;
@@ -1093,14 +1093,18 @@ async function renderLeagueTransactions(league, users) {
       if (dropped.length) details += (added.length ? '; ' : '') + 'Dropped: ' + getPlayerNames(dropped).join(', ');
     }
 
+    // Show season (fall back to league.season if missing)
+    const season = t.season || league.season || '';
+
     return [
       formatDate(t.status_updated),
       team,
       formatTransactionType(t.type),
-      details || '—'
+      details || '—',
+      season
     ];
   });
-  renderTable(tableC, ['Date', 'Team', 'Transaction Type', 'Details'], rows);
+  renderTable(tableC, ['Date', 'Team', 'Transaction Type', 'Details', 'Season'], rows);
 
   // Wire up filter change
   if (typeSel && !typeSel._wired) {
