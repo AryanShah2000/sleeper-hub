@@ -978,17 +978,21 @@ function wireEvents(){
       return;
     }
 // ===== Transactions Page =====
-async function fetchLeagueTransactions(leagueId) {
-  // Fetches the most recent 100 transactions (can be adjusted)
-  try {
-    const url = `https://api.sleeper.app/v1/league/${leagueId}/transactions/1`; // 1 = week 1, but Sleeper returns all for season
-    const resp = await fetch(url);
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
+async function fetchLeagueTransactions(leagueId, season) {
+  // Fetch all transactions for the selected season (by week)
+  const all = [];
+  const weeks = Array.from({length: 18}, (_, i) => i + 1);
+  for (const week of weeks) {
+    try {
+      const url = `https://api.sleeper.app/v1/league/${leagueId}/transactions/${week}`;
+      const resp = await fetch(url);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      if (Array.isArray(data)) all.push(...data);
+    } catch {}
   }
+  // Only include transactions from the correct season
+  return all.filter(t => String(t.season) === String(season));
 }
 
 function formatTransactionType(type) {
@@ -1001,7 +1005,7 @@ function formatTransactionType(type) {
 function formatDate(ts) {
   if (!ts) return '';
   const d = new Date(ts * 1000);
-  return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(undefined, { month: 'short', day: '2-digit' });
 }
 
 function getTeamName(users, rosterId, ownerId) {
@@ -1014,7 +1018,8 @@ function getTeamName(users, rosterId, ownerId) {
 async function renderLeagueTransactions(league, users) {
   const tableC = document.getElementById('transactionsTable');
   tableC.innerHTML = '<div class="note">Loading transactions…</div>';
-  const txns = await fetchLeagueTransactions(league.league_id);
+  const season = document.getElementById('seasonMain')?.value || league.season;
+  const txns = await fetchLeagueTransactions(league.league_id, season);
   if (!txns.length) {
     tableC.innerHTML = '<div class="note">no transactions yet</div>';
     return;
@@ -1027,22 +1032,53 @@ async function renderLeagueTransactions(league, users) {
   }
   // Sort reverse chronological
   filtered.sort((a, b) => b.status_updated - a.status_updated);
+
+  // Helper to get player names from player_ids
+  function getPlayerNames(ids) {
+    if (!Array.isArray(ids) || !g.players) return [];
+    return ids.map(pid => {
+      const m = g.players[pid];
+      return m ? (m.full_name || m.last_name || pid) : pid;
+    });
+  }
+
   // Build rows
   const rows = filtered.map(t => {
-    // For trades, show all involved teams; for waivers/free_agent, show creator
     let team = '';
     if (t.type === 'trade' && Array.isArray(t.roster_ids)) {
       team = t.roster_ids.map(rid => getTeamName(users, rid, t.creator)).join(', ');
     } else {
       team = getTeamName(users, t.roster_ids?.[0] || '', t.creator);
     }
+
+    // Transaction details
+    let details = '';
+    if (t.type === 'trade' && t.adds && t.drops) {
+      // Show traded players by team
+      const tradeTeams = t.roster_ids || [];
+      details = tradeTeams.map(rid => {
+        const added = Object.entries(t.adds).filter(([pid, r]) => r === rid).map(([pid]) => pid);
+        const dropped = Object.entries(t.drops).filter(([pid, r]) => r === rid).map(([pid]) => pid);
+        let str = getTeamName(users, rid, t.creator) + ': ';
+        if (added.length) str += 'Received: ' + getPlayerNames(added).join(', ');
+        if (dropped.length) str += (added.length ? '; ' : '') + 'Sent: ' + getPlayerNames(dropped).join(', ');
+        return str;
+      }).join(' | ');
+    } else if ((t.type === 'waiver' || t.type === 'free_agent') && (t.adds || t.drops)) {
+      const added = t.adds ? Object.keys(t.adds) : [];
+      const dropped = t.drops ? Object.keys(t.drops) : [];
+      if (added.length) details += 'Added: ' + getPlayerNames(added).join(', ');
+      if (dropped.length) details += (added.length ? '; ' : '') + 'Dropped: ' + getPlayerNames(dropped).join(', ');
+    }
+
     return [
       formatDate(t.status_updated),
       team,
-      formatTransactionType(t.type)
+      formatTransactionType(t.type),
+      details || '—'
     ];
   });
-  renderTable(tableC, ['Date', 'Team', 'Transaction Type'], rows);
+  renderTable(tableC, ['Date', 'Team', 'Transaction Type', 'Details'], rows);
 }
 
     const btn2=e.target.closest('#usTabs .tab-btn');
