@@ -2,6 +2,11 @@
 function renderLeagueOverview(league, users, rosters, players) {
   const container = document.getElementById('leagueOverview');
   if (!container) return;
+  if (!Array.isArray(rosters) || !Array.isArray(users)) {
+    container.innerHTML = '<div class="note">Unable to load league overview (missing data).</div>';
+    console.error('League Overview: rosters or users missing', { rosters, users });
+    return;
+  }
   // Standings: sort by wins, then points for
   const standings = [...rosters].sort((a, b) => {
     const aw = +(a.settings?.wins || 0), bw = +(b.settings?.wins || 0);
