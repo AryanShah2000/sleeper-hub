@@ -257,7 +257,8 @@
     <!-- LEAGUE VIEWS -->
     <div id="leagueViews" class="hidden">
       <div class="tabs" id="leagueTabs">
-        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
+        <button class="tab-btn active" data-tab="tab-overview">League Overview</button>
+        <button class="tab-btn" data-tab="tab-roster">My Roster</button>
         <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
         <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
         <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
@@ -266,7 +267,8 @@
         <button class="tab-btn" data-tab="tab-transactions">Transactions</button>
       </div>
       <div class="sections" id="leagueSections">
-        <section id="tab-roster" class="active"><div id="rosterTable"></div></section>
+  <section id="tab-overview" class="active"><div id="leagueOverview"></div><div id="teamRosterModal" class="hidden"></div></section>
+  <section id="tab-roster"><div id="rosterTable"></div></section>
         <section id="tab-pos"><div id="posTable"></div></section>
         <section id="tab-matchup">
           <div id="matchupSummary"></div>

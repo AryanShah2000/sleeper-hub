@@ -1,3 +1,59 @@
+// ===== League Overview Tab =====
+function renderLeagueOverview(league, users, rosters, players) {
+  const container = document.getElementById('leagueOverview');
+  if (!container) return;
+  // Standings: sort by wins, then points for
+  const standings = [...rosters].sort((a, b) => {
+    const aw = +(a.settings?.wins || 0), bw = +(b.settings?.wins || 0);
+    if (bw !== aw) return bw - aw;
+    const apf = +(a.settings?.fpts || 0), bpf = +(b.settings?.fpts || 0);
+    return bpf - apf;
+  });
+  const userMap = Object.fromEntries(users.map(u => [u.user_id, u]));
+  const rows = standings.map(r => {
+    const u = userMap[r.owner_id] || {};
+    const name = u.metadata?.team_name || u.display_name || `Team ${r.roster_id}`;
+    const rec = r.settings ? `(${r.settings.wins||0}-${r.settings.losses||0}${r.settings.ties?'-'+r.settings.ties:''})` : '';
+    const pf = r.settings?.fpts || 0;
+    return [name, rec, pf.toFixed(2), r.roster_id];
+  });
+  // Add click handler for roster modal
+  container.innerHTML = '';
+  const table = el('table');
+  const thead = el('thead');
+  thead.append(el('tr', {}, ['Team', 'Record', 'Points For'].map(h => el('th', { html: h }))));
+  const tbody = el('tbody');
+  rows.forEach(([name, rec, pf, rid]) => {
+    const tr = el('tr');
+    const tdName = el('td', { html: name });
+    tdName.style.cursor = 'pointer';
+    tdName.addEventListener('click', () => showTeamRosterModal(rid, league, users, rosters, players));
+    tr.append(tdName, el('td', { html: rec }), el('td', { html: pf }));
+    tbody.append(tr);
+  });
+  table.append(thead, tbody);
+  container.append(table);
+}
+
+function showTeamRosterModal(rosterId, league, users, rosters, players) {
+  const modal = document.getElementById('teamRosterModal');
+  if (!modal) return;
+  const roster = rosters.find(r => r.roster_id === rosterId);
+  if (!roster) return;
+  const u = users.find(u => u.user_id === roster.owner_id) || {};
+  const name = u.metadata?.team_name || u.display_name || `Team ${rosterId}`;
+  // Build roster table
+  const rows = rosterRows(roster, players).map(r => [r.name, r.pos, r.team]);
+  modal.innerHTML = `<div style="background:#10183a;padding:18px 24px;border-radius:12px;max-width:400px;margin:40px auto;box-shadow:0 8px 32px #000b;position:relative;">
+    <button id="closeRosterModal" style="position:absolute;top:8px;right:12px;font-size:18px;background:none;border:none;color:#fff;cursor:pointer;">&times;</button>
+    <h3 style="margin-top:0">${name} Roster</h3>
+    <table style="width:100%"><thead><tr><th>Player</th><th>Pos</th><th>Team</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}
+    </tbody></table>
+  </div>`;
+  modal.classList.remove('hidden');
+  document.getElementById('closeRosterModal').onclick = () => modal.classList.add('hidden');
+}
 // ===== App state =====
 let g = { players: null, userId: null, leagues: {}, selected: null, mode: 'summary', waiverPref: null };
 
@@ -209,68 +265,68 @@ function ageFrom(d){ const now=new Date(); let a=now.getFullYear()-d.getFullYear
 function age(meta){ if (meta?.age!=null){ const n=+meta.age; if (Number.isFinite(n)&&n>0) return Math.floor(n);} const bd=parseBD(meta); return bd?ageFrom(bd):null; }
 const BYE_2025={ATL:5,CHI:5,GB:5,PIT:5,HOU:6,MIN:6,BAL:7,BUF:7,ARI:8,DET:8,JAX:8,LV:8,LAR:8,SEA:8,CLE:9,NYJ:9,PHI:9,TB:9,CIN:10,DAL:10,KC:10,TEN:10,IND:11,NO:11,DEN:12,LAC:12,MIA:12,WAS:12,CAR:14,NE:14,NYG:14,SF:14};
 function teamBye(team, season){ return season==2025 ? BYE_2025[team] : null; }
-function rosterRecord(roster){
-  const s = roster?.settings || {};
-  const w = Number.isFinite(+s.wins)   ? +s.wins   : 0;
-  const l = Number.isFinite(+s.losses) ? +s.losses : 0;
-  const t = Number.isFinite(+s.ties)   ? +s.ties   : 0;
-  return t > 0 ? `(${w}-${l}-${t})` : `(${w}-${l})`;
-}
+async function renderSelectedLeague(){
+  const id=g.selected; if(!id) return; const {league,users,rosters}=g.leagues[id];
+  const season=+league.season; const week=+($('#weekSelect').value||1);
+  const myRoster=rosters.find(r=>r.owner_id===g.userId) || rosters[0];
+  const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
+  const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster.roster_id}`;
 
-// ===== Render helpers =====
-function renderTable(container, headers, rows){
-  const table=el('table'), thead=el('thead'), tbody=el('tbody');
-  thead.append(el('tr',{},headers.map(h=>el('th',{html:h}))));
-  rows.forEach(r=>tbody.append(el('tr',{},r.map(c=>el('td',{html:String(c)})))));
-  table.append(thead,tbody); container.innerHTML=''; container.append(table);
-}
-function renderSortableTable(container, headers, rows, types){
-  const table=el('table'), thead=el('thead'), tbody=el('tbody'); let sortCol=-1, sortDir='desc';
-  const parse=(v,t)=>(t==='num'?(Number.isNaN(+v)?null:+v): t==='bye'?(v&&String(v).startsWith('W')?+String(v).slice(1):Number.isNaN(+v)?null:+v) : String(v||''));
-  const cmp=(a,b,t,d)=>{const mul=d==='asc'?1:-1; if(t==='str') return mul*String(a).localeCompare(String(b)); if(a==null&&b==null) return 0; if(a==null) return 1; if(b==null) return -1; return mul*(a-b);};
-  function head(){ const tr=el('tr'); headers.forEach((h,i)=>{ const th=el('th'); th.classList.add('sortable'); th.append(el('span',{html:h}), el('span',{class:'arrow',html:''}));
-    th.addEventListener('click',()=>{ if(sortCol===i) sortDir=sortDir==='asc'?'desc':'asc'; else{sortCol=i; sortDir='desc';} body(); arrows(); }); tr.append(th);});
-    thead.innerHTML=''; thead.append(tr);
+  $('#contextNote').textContent = `${league.name} • ${league.season}`;
+  $('#posNote').textContent = '';
+
+  renderLeagueOverview(league, users, rosters, g.players);
+  renderRoster($('#rosterTable'), myRoster, g.players, season);
+
+  const scoring=league.scoring_settings||{}; 
+  const proj=await projByPid(season, week, 'regular', g.players, scoring);
+  const projFn=(pid)=>proj[String(pid)]||0;
+
+  const vals=rosters.reduce((acc,r)=>{ acc[r.roster_id]=teamPosValues(league, rosterRows(r,g.players,projFn)); return acc; },{});
+  const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
+  const orderPure = ['QB','RB','WR','TE','K','DEF'].filter(k => rp.includes(k));
+  const orderFlex = []; if (rp.includes('FLEX')) orderFlex.push('FLEX'); if (rp.includes('SUPER_FLEX')) orderFlex.push('SUPER_FLEX');
+  const order = [...orderPure, ...orderFlex];
+
+  const posStats={};
+  const allRosters = rosters.map(r => r.roster_id);
+  for (const pos of order){
+    const list = rosters.map(r => (vals[r.roster_id][pos] || 0));
+    const my = list[allRosters.indexOf(myRoster.roster_id)] || 0;
+    const {rank,out_of,pct}=rankPct(list,my);
+    posStats[pos]={ my_value:+(+my).toFixed(2), rank, out_of, percentile:pct};
   }
-  function arrows(){ thead.querySelectorAll('th').forEach((th,i)=>{ th.classList.remove('sorted-asc','sorted-desc'); const a=th.querySelector('.arrow'); if(!a) return;
-    if(i===sortCol){ th.classList.add(sortDir==='asc'?'sorted-asc':'sorted-desc'); a.textContent=sortDir==='asc'?'▲':'▼'; } else a.textContent=''; });}
-  function body(){ const t=rows.map(r=>({raw:r,key:r.map((c,idx)=>parse(c,types[idx]))})); if(sortCol>=0) t.sort((ra,rb)=>cmp(ra.key[sortCol],rb.key[sortCol],types[sortCol],sortDir));
-    tbody.innerHTML=''; t.forEach(r=>tbody.append(el('tr',{},r.raw.map(c=>el('td',{html:String(c)}))))); }
-  head(); body(); arrows(); table.append(thead,tbody); container.innerHTML=''; container.append(table);
-}
+  renderPos($('#posTable'), posStats, order);
 
-// ===== League/summary renders =====
-function renderRoster(container, roster, players, season){
-  const rows = rosterRows(roster, players).map((r)=>{
-    const m=players[r.pid]||{}; const a=age(m); const ageDisp=Number.isInteger(a)?a:'—';
-    let bye=teamBye(r.team, season); if(!(Number.isInteger(bye)&&bye>=1&&bye<=18)) bye=Number.isInteger(r.bye)?r.bye:null;
-    const byeDisp=Number.isInteger(bye)?('W'+bye):'—';
-    return [r.name, r.team, byeDisp, ageDisp];
-  });
-  renderSortableTable(container, ['Player','Team','Bye','Age'], rows, ['str','str','bye','num']);
-}
-function renderPos(container, posStats, order){
-  const rows=[];
-  for (const pos of order){ const s=posStats[pos]; if(s==null) continue; rows.push([pos.replace('_',' '), (s.my_value||0).toFixed(2), `${s.rank} / ${s.out_of}`, `${s.percentile}%`]); }
-  renderTable(container, ['Pos','Points','Rank','Percentile'], rows);
-}
-function renderMatchup(sumDiv, myDiv, oppDiv, p){
-  renderTable(sumDiv,['Team','Projected Total'],[[p.me.team_name||'Me',p.me.projected_total],[p.opponent.team_name||'Opponent',p.opponent.projected_total]]);
-  renderTable(myDiv,['My Starters','Pos','Team','Proj'], p.myStart.map(x=>[x.name,x.pos,x.team,x.proj.toFixed(2)]));
-  renderTable(oppDiv,['Opponent Starters','Pos','Team','Proj'], p.oppStart.map(x=>[x.name,x.pos,x.team,x.proj.toFixed(2)]));
-}
-async function matchupPreview(leagueId, week, league, users, rosters, players, projFn, myRid, myTeam){
-  let matchups=[]; try{ matchups = await fetchJSON(`https://api.sleeper.app/v1/league/${leagueId}/matchups/${week}`);}catch{}
-  const byRid = new Map(matchups.filter(m=>m&&typeof m==='object').map(m=>[m.roster_id,m]));
-  const myM = byRid.get(myRid);
-  const userById = Object.fromEntries(users.map(u=>[u.user_id,u]));
-  const rosterById = Object.fromEntries(rosters.map(r=>[r.roster_id,r]));
-  const teamName = (rid)=>{ const r=rosterById[rid]||{}; const u=userById[r.owner_id]||{}; return (u.metadata?.team_name)||u.display_name||(rid?`Team ${rid}`:null); };
-  const starters = (rid)=>{ const m=byRid.get(rid)||{}; const r=rosterById[rid]||{}; return (m.starters||r.starters||[]).filter(pid=>pid!=='0'); };
-  const startersProj = (rid)=> starters(rid).map(pid=>{ const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0}; });
-  let oppRid = null; if (myM){ const mid=myM.matchup_id; const opp = matchups.find(m=>m.matchup_id===mid && m.roster_id!==myRid); oppRid = opp?.roster_id ?? null; }
-  const myStart = startersProj(myRid); const oppStart = oppRid ? startersProj(oppRid) : [];
-  return { week, me:{ team_name:myTeam, projected_total:+myStart.reduce((s,p)=>s+p.proj,0).toFixed(2) }, opponent:{ team_name:teamName(oppRid), projected_total:+oppStart.reduce((s,p)=>s+p.proj,0).toFixed(2) }, myStart, oppStart };
+  const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+  renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
+
+  const byeData = byeMatrixByPosition(myRoster, g.players, season, league);
+  renderByePositions($('#byeMatrix'), byeData);
+
+  const startersSet = new Set(prev.myStart.map(p => p.pid));
+  const allMyRows = rosterRows(myRoster, g.players, projFn);
+  const flagged = prev.myStart.filter(p => (p.proj || 0) === 0);
+  const candidatesByPid = {};
+  for (const p of flagged) {
+    const cands = allMyRows
+      .filter(r => r.pos === p.pos && !startersSet.has(r.pid))
+      .sort((a,b)=>b.proj - a.proj);
+    candidatesByPid[p.pid] = cands;
+  }
+  renderAlerts($('#alertsView'), { flagged, candidatesByPid, week });
+
+  const alertBtn = document.querySelector('#leagueTabs .tab-btn[data-tab="tab-alerts"]');
+  if (alertBtn) {
+    if (flagged.length > 0) alertBtn.classList.add('has-alert'); else alertBtn.classList.remove('has-alert');
+  }
+
+  await renderWaiverWire(league, rosters, season, week, scoring, g.waiverPref);
+  g.waiverPref = null;
+
+  $('#userSummary').classList.add('hidden');
+  $('#leagueViews').classList.remove('hidden');
+  // ...existing code...
 }
 
 // ===== Bye matrices =====
@@ -964,6 +1020,10 @@ function wireEvents(){
       const id=btn1.dataset.tab;
       document.querySelectorAll('#leagueSections > section').forEach(s=>s.classList.toggle('active', s.id===id));
 
+      if (id === 'tab-overview' && g.mode==='league' && g.selected) {
+        const { league, users, rosters } = g.leagues[g.selected];
+        renderLeagueOverview(league, users, rosters, g.players);
+      }
       if (id === 'tab-waivers' && g.mode==='league' && g.selected){
         const { league, rosters } = g.leagues[g.selected];
         const season=+league.season; const week=+($('#weekSelect').value||1);
