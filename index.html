@@ -20,7 +20,7 @@
   .status.ok{color:#9ff3c8;border-color:#2a5}
   .status.err{color:#ffd1d1;border-color:#a33;background:#2a0e14}
 
-  .inputs{display:grid;grid-template-columns:1fr 130px;gap:8px}
+  .inputs{display:grid;grid-template-columns:1fr 200px;gap:8px}
   .inputs > div{min-width:0}
   label{display:block;margin:4px 0 4px;color:var(--muted);font-weight:600}
   input,select,button{background:#0e1630;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
@@ -94,6 +94,7 @@
   /* Matchup overview cards */
   .matchup-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:8px}
   .matchup-card{background:#07102a;border:1px solid var(--border);border-radius:10px;padding:10px}
+  .matchup-card{ cursor: pointer }
   .matchup-card .mc-head{font-weight:700;margin-bottom:8px}
   .matchup-card .mc-head{ text-align:center }
   .matchup-card .mc-line{font-size:13px;margin:4px 0}
@@ -103,8 +104,93 @@
   .matchup-card .mc-score{background:linear-gradient(180deg,#0b2136,#07162a);border:1px solid var(--border);padding:6px 8px;border-radius:8px;min-width:56px;text-align:center;font-weight:800}
   .matchup-card .mc-row.opp .mc-team{opacity:0.9}
 
+  /* win/lose dashed outlines for my score */
+  .matchup-card .mc-score.win{ box-shadow: 0 0 0 3px rgba(0,0,0,0.25) inset; border: 2px dashed rgba(116, 236, 147, 0.9); }
+  .matchup-card .mc-score.lose{ box-shadow: 0 0 0 3px rgba(0,0,0,0.25) inset; border: 2px dashed rgba(255, 110, 110, 0.9); }
+
   /* temp tooltip bubble */
   .__temp-tooltip{color:#dfe9ff}
+  /* Matchup scorecard */
+  .scorecard-header{display:flex;align-items:center;gap:12px;margin:6px 0 12px}
+  .score-team{width:120px;text-align:center;font-weight:700}
+  .score-main{display:flex;align-items:center;gap:12px;background:linear-gradient(180deg,#081226,#071024);padding:10px;border-radius:10px;border:1px solid var(--border)}
+  .score-left,.score-right{font-size:20px;font-weight:900;padding:0 8px}
+  .score-vs{color:var(--muted);font-weight:700}
+  .scorecard-wrap{display:flex;justify-content:center}
+  .starters-list{display:flex;flex-direction:column;gap:6px}
+  .starter-row{display:grid;grid-template-columns:1fr 64px;gap:8px;padding:6px 8px;border-radius:6px;background:transparent;border:1px solid transparent;align-items:center}
+  .starter-row .sr-name{font-weight:700}
+  .sr-name{font-weight:700}
+  .sr-meta{font-size:12px;color:var(--muted);margin-left:6px}
+  .sr-proj{font-weight:800;text-align:right}
+  /* bench rows greyed out */
+  .starters-title{margin-top:8px;margin-bottom:6px;font-weight:700}
+  .bench .starter-row{opacity:0.45}
+  .score-main{display:flex;flex-direction:column;align-items:center;gap:6px;background:linear-gradient(180deg,#081226,#071024);padding:12px 18px;border-radius:10px;border:1px solid var(--border)}
+  .score-box{display:flex;align-items:center;gap:14px}
+  .score-left.big,.score-right.big{font-size:28px;font-weight:900}
+  .score-current{font-size:12px;color:var(--muted)}
+  .score-proj em{font-size:12px;color:var(--muted);font-style:italic}
+  .matchup-row{display:grid;grid-template-columns:1fr 240px 1fr;gap:12px}
+  #matchupCenter{display:flex;align-items:center;justify-content:center}
+  .player-label{display:flex;flex-direction:column}
+  .player-label .name{font-weight:700}
+  /* new player name/meta styles used in matchup table */
+  .player-name{font-weight:800;font-size:15px}
+  .player-meta{font-size:12px;color:var(--muted);margin-top:4px}
+  .player-label .meta{font-size:12px;color:var(--muted)}
+  /* bench items inline */
+  .bench .bench-item{display:inline-flex;align-items:center;gap:8px;margin-right:8px;padding:6px 8px;border-radius:8px;background:transparent}
+  .bench .bench-item .player-name{font-weight:700}
+  .bench .bench-item .player-meta{font-size:12px;color:var(--muted)}
+  .bench-score-item{display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
+  .matchup-table tr.bench td{vertical-align:middle}
+  /* center player names in matchup table side columns */
+  .matchup-table td:first-child, .matchup-table td:last-child { text-align: center; }
+  .matchup-table td .player-name { display:block; text-align:center; }
+  .bench .bench-item .bench-left{display:flex;flex-direction:column;align-items:center}
+  .bench .bench-item .player-meta{margin-top:4px;text-align:center}
+  /* league dot indicator in sidebar — three-dot horizontal "traffic" indicator (red/yellow/green) */
+  .league-dot{display:inline-flex;gap:6px;align-items:center;margin-left:8px}
+  .league-dot .ldot{width:10px;height:10px;border-radius:999px;border:1px solid rgba(255,255,255,0.06);background:transparent;opacity:0.18}
+  .league-dot .ldot.red-active{background:#ff6b6b;opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,0.22)}
+  .league-dot .ldot.yellow-active{background:#ffd166;opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,0.12)}
+  .league-dot .ldot.green-active{background:#84ffb5;opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,0.12)}
+  .bench-dot{display:inline-block;width:10px;height:10px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .bench-dot.dot-yellow{background:#ffd166}
+  .starter-dot{display:inline-block;width:12px;height:12px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .starter-dot.dot-yellow{background:#ffd166}
+  .starter-dot.dot-red{background:#ff6b6b}
+  .center-box{background:linear-gradient(180deg,#061124,#08162a);padding:12px;border-radius:10px;border:1px solid var(--border);text-align:center;min-width:180px}
+  .center-scores{display:flex;align-items:center;justify-content:center;gap:20px}
+  .center-left.big,.center-right.big{font-size:28px;font-weight:900}
+  .center-proj{font-size:12px;color:var(--muted);font-style:italic;margin-top:6px}
+  /* Compact scoreboard shown above matchup table */
+  .scorebox-small{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:linear-gradient(180deg,#061124,#071226);border:1px solid var(--border);margin-bottom:8px}
+  .scorebox-small .sb-teams{display:flex;justify-content:space-between;font-weight:700;font-size:13px}
+  .scorebox-small .sb-scores{display:flex;align-items:center;justify-content:center;gap:12px;font-weight:900;font-size:18px}
+  .scorebox-small .sb-left-score, .scorebox-small .sb-right-score{min-width:48px;text-align:center}
+  .scorebox-small .sb-vs{font-size:12px;color:var(--muted);font-weight:700}
+  .scorebox-small .sb-proj{font-size:12px;color:var(--muted);text-align:center}
+  /* center the top scoreboard team names in the header area */
+  .scorebox-small .sb-teams{justify-content:center;gap:24px}
+  .scorebox-small .sb-teams .sb-left, .scorebox-small .sb-teams .sb-right{min-width:140px;text-align:center}
+
+  /* Matchup table layout */
+  .matchup-table{width:100%;border-collapse:collapse;margin-top:6px}
+  .matchup-table th, .matchup-table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px}
+  .matchup-table th{background:#08162a;color:#b8c6ff;text-align:left}
+  .matchup-table thead th:first-child, .matchup-table thead th:last-child { width: 40%; }
+  .matchup-table thead th:first-child, .matchup-table thead th:last-child { background: transparent; border-bottom: none; }
+  .matchup-table tr.bench td{opacity:0.5;color:var(--muted)}
+  .bench-title{padding:8px 10px;background:transparent;font-weight:700;color:var(--muted)}
+  .matchup-table td:first-child, .matchup-table td:last-child{width:40%}
+  .matchup-table td:nth-child(2), .matchup-table td:nth-child(3){width:10%;font-weight:800}
+  /* per-player score box (current above, projected below) */
+  .player-score-box{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 8px;border-radius:8px;background:linear-gradient(180deg,#061124,#07162a);border:1px solid var(--border);min-width:72px}
+  .player-score-box .ps-current{font-weight:900;font-size:14px}
+  .player-score-box .ps-proj{font-size:12px;color:var(--muted)}
+  @media (max-width:720px){ .scorebox-small .sb-scores{font-size:16px} .scorebox-small .sb-teams{font-size:12px} .matchup-table th, .matchup-table td{font-size:12px;padding:6px} }
 </style>
 </head>
 <body>
@@ -162,14 +248,12 @@
         <input id="username" placeholder="" />
       </div>
       <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end">
-        <button id="viewLeaguesBtn" disabled>View Leagues</button>
+  <button id="viewLeaguesBtn" disabled>View Leagues</button>
+  <button id="refreshBtn" title="Refresh data" style="margin-left:6px">⟳</button>
       </div>
     </div>
 
-    <div class="row-2">
-      <input id="manualLeagueId" placeholder="League ID (optional)" />
-      <button id="addLeagueBtn" disabled>Add</button>
-    </div>
+  <!-- removed manual League ID input and Add button -->
 
     <div class="nav-head">Overview</div>
     <div id="summaryItem" class="summary-item hidden">
@@ -212,19 +296,28 @@
     <div id="userSummary" class="hidden">
       <div class="tabs" id="usTabs">
         <button class="tab-btn active" data-tab="us-root">Rooting Interest</button>
-        <button class="tab-btn" data-tab="us-proj">Projections</button>
         <button class="tab-btn" data-tab="us-byes">Bye Count</button>
         <button class="tab-btn" data-tab="us-matchups">Matchup Overview</button>
       </div>
       <div class="sections">
         <section id="us-root" class="active">
           <h3 class="subhead">Who to Root For</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <div style="flex:1">
+              <div id="usGameFilterWrap" style="display:flex;gap:8px;align-items:center">
+                <label style="color:var(--muted);font-weight:600">Filter by game</label>
+                <select id="usGameSelect"><option value="">All games (select week)</option></select>
+                <button id="usLoadGames" style="padding:8px 10px">Load games</button>
+              </div>
+            </div>
+          </div>
           <div id="usRootForTable"></div>
+          <div id="usGamePlayers" style="margin-top:10px"></div>
 
           <h3 class="subhead" style="margin-top:14px;">Who to Root Against</h3>
           <div id="usRootAgainstTable"></div>
         </section>
-  <section id="us-proj"><div id="usProjTable"></div></section>
+  <!-- projections tab removed -->
   <section id="us-byes">
           <h3 class="subhead" style="margin-top:0;">Season Bye Matrix (All Leagues)</h3>
           <div id="usByeMatrix"></div>
@@ -236,9 +329,9 @@
     <!-- LEAGUE VIEWS -->
     <div id="leagueViews" class="hidden">
       <div class="tabs" id="leagueTabs">
-        <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
-        <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
-        <button class="tab-btn" data-tab="tab-matchup">Opponent Projections</button>
+  <button class="tab-btn active" data-tab="tab-roster">My Roster</button>
+  <button class="tab-btn" data-tab="tab-pos">Team Projections</button>
+  <button class="tab-btn" data-tab="tab-matchup">Matchup</button>
         <button class="tab-btn" data-tab="tab-byes">Bye Week Matrix</button>
         <button class="tab-btn" data-tab="tab-alerts">Alerts<span class="dot" aria-hidden="true"></span></button>
       </div>
@@ -247,8 +340,9 @@
         <section id="tab-pos"><div id="posTable"></div></section>
         <section id="tab-matchup">
           <div id="matchupSummary"></div>
-          <div class="row" style="margin-top:8px">
+          <div class="matchup-row" style="margin-top:8px">
             <div id="myStarters"></div>
+            <div id="matchupCenter"></div>
             <div id="oppStarters"></div>
           </div>
         </section>

@@ -1,6 +1,46 @@
 // ===== App state =====
 let g = { players: null, userId: null, leagues: {}, selected: null, mode: 'summary', waiverPref: null };
 
+// Lightweight static schedule fallback (editable). Structure: STATIC_SCHEDULE[season][week] = [{away_team,home_team},...]
+const STATIC_SCHEDULE = {
+  '2025': {
+    '1': [
+      { away_team: 'DAL', home_team: 'PHI' },
+      { away_team: 'KC',  home_team: 'BUF' },
+      { away_team: 'GB',  home_team: 'MIN' },
+      { away_team: 'TB',  home_team: 'NO'  },
+      { away_team: 'NE',  home_team: 'NYJ' },
+      { away_team: 'SF',  home_team: 'LAR' },
+      { away_team: 'ARI', home_team: 'SEA' },
+      { away_team: 'NYG', home_team: 'WAS' },
+      { away_team: 'CIN', home_team: 'BAL' },
+      { away_team: 'PIT', home_team: 'CLE' },
+      { away_team: 'HOU', home_team: 'IND' },
+      { away_team: 'TEN', home_team: 'JAX' },
+      { away_team: 'MIA', home_team: 'CAR' },
+      { away_team: 'LAC', home_team: 'DEN' },
+      { away_team: 'DET', home_team: 'ATL' },
+      { away_team: 'CHI', home_team: 'LV'  }
+    ]
+  }
+};
+
+// ensure weeks 1..18 exist for 2025 by duplicating week 1 if missing
+if(!STATIC_SCHEDULE['2025']) STATIC_SCHEDULE['2025'] = {};
+for(let w=1; w<=18; w++){ const wk=String(w); if(!STATIC_SCHEDULE['2025'][wk]) STATIC_SCHEDULE['2025'][wk] = STATIC_SCHEDULE['2025']['1']; }
+
+// Team abbreviation normalization map (maps variants to standard codes used in g.players)
+const TEAM_ABBREV_NORMALIZE = {
+  'JAC':'JAX','JAC.':'JAX','WAS':'WAS','WSH':'WAS','LAR':'LAR','LA':'LAR','STL':'LAR','SF':'SF','SFO':'SF',
+  'KC':'KC','KAN':'KC','NE':'NE','NWE':'NE','NYG':'NYG','NYJ':'NYJ','NYJ':'NYJ','GB':'GB','GNB':'GB',
+  'TB':'TB','TBB':'TB','NO':'NO','NOR':'NO','DAL':'DAL','DAL.':'DAL','PHI':'PHI','PHI.':'PHI',
+  'BUF':'BUF','BUF.':'BUF','CIN':'CIN','CIN.':'CIN','BAL':'BAL','BAL.':'BAL','PIT':'PIT','PIT.':'PIT',
+  'CLE':'CLE','CLE.':'CLE','HOU':'HOU','HOU.':'HOU','IND':'IND','IND.':'IND','TEN':'TEN','TEN.':'TEN',
+  'JAX':'JAX','MIA':'MIA','MIA.':'MIA','CAR':'CAR','CAR.':'CAR','LAC':'LAC','LAC.':'LAC','DEN':'DEN','DEN.':'DEN',
+  'DET':'DET','DET.':'DET','ATL':'ATL','ATL.':'ATL','CHI':'CHI','CHI.':'CHI','LV':'LV','LVR':'LV','ARI':'ARI','ARI.':'ARI','SEA':'SEA','SEA.':'SEA'
+};
+function normalizeTeam(abbr){ if(!abbr) return abbr; const a = String(abbr).toUpperCase(); return TEAM_ABBREV_NORMALIZE[a] || a; }
+
 // ===== Tiny DOM helpers + cache =====
 const $ = (s) => document.querySelector(s);
 const el = (tag, attrs = {}, kids = []) => {
@@ -13,6 +53,17 @@ const el = (tag, attrs = {}, kids = []) => {
   (Array.isArray(kids) ? kids : [kids]).filter(Boolean).forEach((k) => n.append(k));
   return n;
 };
+
+// Small HTML escaper for safe insertion into innerHTML when needed
+function escapeHtml(s){
+  if(s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
 
 let statusHideTimer = null;
 const TTL = 3 * 3600 * 1000;
@@ -230,9 +281,128 @@ function renderPos(container, posStats, order){
   renderTable(container, ['Pos','Points','Rank','Percentile'], rows);
 }
 function renderMatchup(sumDiv, myDiv, oppDiv, p){
-  renderTable(sumDiv,['Team','Projected Total'],[[p.me.team_name||'Me',p.me.projected_total],[p.opponent.team_name||'Opponent',p.opponent.projected_total]]);
-  renderTable(myDiv,['My Starters','Pos','Team','Proj'], p.myStart.map(x=>[x.name,x.pos,x.team,x.proj.toFixed(2)]));
-  renderTable(oppDiv,['Opponent Starters','Pos','Team','Proj'], p.oppStart.map(x=>[x.name,x.pos,x.team,x.proj.toFixed(2)]));
+  // Clear containers
+  if(sumDiv) sumDiv.innerHTML=''; if(myDiv) myDiv.innerHTML=''; if(oppDiv) oppDiv.innerHTML='';
+  const leftName = p.me.team_name || 'Me';
+  const rightName = p.opponent.team_name || 'Opponent';
+  const leftProj = (Number(p.me.projected_total)||0).toFixed(2);
+  const rightProj = (Number(p.opponent.projected_total)||0).toFixed(2);
+  const leftCur = (Number(p.me.current_total)||0).toFixed(2);
+  const rightCur = (Number(p.opponent.current_total)||0).toFixed(2);
+
+  // compact scoreboard at top (smaller)
+  const scoreBox = el('div',{class:'scorebox-small'},[
+    el('div',{class:'sb-teams'}, [ el('div',{class:'sb-left', html:leftName}), el('div',{class:'sb-spacer', html:' ' }), el('div',{class:'sb-right', html:rightName}) ]),
+    el('div',{class:'sb-scores'}, [ el('div',{class:'sb-left-score', html:leftCur}), el('div',{class:'sb-vs', html:'vs'}), el('div',{class:'sb-right-score', html:rightCur}) ]),
+    el('div',{class:'sb-proj', html:`<em>Projected: ${leftProj} — ${rightProj}</em>`})
+  ]);
+  sumDiv.append(scoreBox);
+
+  // Build matchup table: use the starter order from Sleeper (array order)
+  const tbl = document.createElement('table'); tbl.className='matchup-table';
+  const thead = el('thead'); thead.append(el('tr',{}, [ el('th',{html:''}), el('th',{html:'Proj'}), el('th',{html:'Proj'}), el('th',{html:''}) ]));
+  tbl.append(thead);
+  const tbody = el('tbody');
+
+  const leftList = p.myStart || [];
+  const rightList = p.oppStart || [];
+  const maxLen = Math.max(leftList.length, rightList.length);
+  // Precompute starter proj arrays by position and map pid->starter minimal proj for lookups
+  const leftStartersByPos = {};
+  const rightStartersByPos = {};
+  const leftStarterMinByPos = {};
+  const rightStarterMinByPos = {};
+  const leftStarterByPid = {};
+  const rightStarterByPid = {};
+  (leftList||[]).forEach(s=>{ const pos=(s.pos||'UNK').toUpperCase(); leftStartersByPos[pos]=leftStartersByPos[pos]||[]; leftStartersByPos[pos].push(+s.proj||0); leftStarterByPid[String(s.pid)]=s; });
+  (rightList||[]).forEach(s=>{ const pos=(s.pos||'UNK').toUpperCase(); rightStartersByPos[pos]=rightStartersByPos[pos]||[]; rightStartersByPos[pos].push(+s.proj||0); rightStarterByPid[String(s.pid)]=s; });
+  Object.entries(leftStartersByPos).forEach(([pos,arr])=>{ leftStarterMinByPos[pos]=arr.length?Math.min(...arr):null; });
+  Object.entries(rightStartersByPos).forEach(([pos,arr])=>{ rightStarterMinByPos[pos]=arr.length?Math.min(...arr):null; });
+  for(let i=0;i<maxLen;i++){
+    const L = leftList[i] || null;
+    const R = rightList[i] || null;
+    const leftCell = el('td');
+    if(L){
+      // determine if this starter should show a dot: red if proj === 0 or starter missing, yellow if any bench of same pos projects to outscore this starter
+      const Lpid = String(L.pid);
+      const Lpos = (L.pos||'UNK').toUpperCase();
+      const LprojVal = Number(L.proj||0);
+      const Lred = (LprojVal === 0);
+      // find any bench in myBench that has higher proj than this starter
+      const Lyellow = (p.myBench || []).some(b => ((b.pos||'UNK').toUpperCase() === Lpos) && (Number(b.proj||0) > LprojVal));
+  // compose dot HTML: red takes visual priority but show both in matchup view
+  let dots = '';
+  if (Lred) dots += `<span class="starter-dot dot-red" title="Starter projected 0 pts"></span>`;
+  if (Lyellow) dots += `<span class="starter-dot dot-yellow" title="Bench projects to outscore this starter"></span>`;
+  leftCell.append(el('div',{}, [ el('div',{class:'player-name', html: escapeHtml(L.name) + dots}), el('div',{class:'player-meta', html: `${L.pos} • ${L.team}`}) ]));
+    }
+    const rightCell = el('td');
+    if(R){
+      const Rpid = String(R.pid);
+      const Rpos = (R.pos||'UNK').toUpperCase();
+      const RprojVal = Number(R.proj||0);
+      const Rred = (RprojVal === 0);
+      const Ryellow = (p.oppBench || []).some(b => ((b.pos||'UNK').toUpperCase() === Rpos) && (Number(b.proj||0) > RprojVal));
+  let dotsR = '';
+  if (Rred) dotsR += `<span class="starter-dot dot-red" title="Starter projected 0 pts"></span>`;
+  if (Ryellow) dotsR += `<span class="starter-dot dot-yellow" title="Bench projects to outscore this starter"></span>`;
+  rightCell.append(el('div',{}, [ el('div',{class:'player-name', html: escapeHtml(R.name) + dotsR}), el('div',{class:'player-meta', html: `${R.pos} • ${R.team}`}) ]));
+    }
+    const lcur = L ? (Number(L.current||0).toFixed(2)) : '';
+    const rcur = R ? (Number(R.current||0).toFixed(2)) : '';
+    const lproj = L ? (Number(L.proj||0).toFixed(2)) : '';
+    const rproj = R ? (Number(R.proj||0).toFixed(2)) : '';
+    const leftScoreTd = el('td'); leftScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: lcur}), el('div',{class:'ps-proj', html: lproj}) ]));
+    const rightScoreTd = el('td'); rightScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: rcur}), el('div',{class:'ps-proj', html: rproj}) ]));
+    const tr = el('tr',{}, [ leftCell, leftScoreTd, rightScoreTd, rightCell ]);
+    tbody.append(tr);
+  }
+
+  // benches: render each bench player row the same way as starters but greyed
+  if((p.myBench && p.myBench.length>0) || (p.oppBench && p.oppBench.length>0)){
+    const leftBench = p.myBench || [];
+    const rightBench = p.oppBench || [];
+    // build starter proj arrays by position for comparisons
+    const leftStarterProjByPos = {};
+    const rightStarterProjByPos = {};
+    (p.myStart||[]).forEach(s=>{ const pos=(s.pos||'UNK').toUpperCase(); leftStarterProjByPos[pos]=leftStarterProjByPos[pos]||[]; leftStarterProjByPos[pos].push(+s.proj||0); });
+    (p.oppStart||[]).forEach(s=>{ const pos=(s.pos||'UNK').toUpperCase(); rightStarterProjByPos[pos]=rightStarterProjByPos[pos]||[]; rightStarterProjByPos[pos].push(+s.proj||0); });
+
+    const bMax = Math.max(leftBench.length, rightBench.length);
+    for(let i=0;i<bMax;i++){
+      const L = leftBench[i] || null;
+      const R = rightBench[i] || null;
+      const leftCell = el('td');
+      if(L){
+        const pos = (L.pos||'UNK').toUpperCase();
+        const sArr = leftStarterProjByPos[pos] || [];
+        const minStarter = sArr.length? Math.min(...sArr) : null;
+        const showDot = (minStarter !== null) && (Number(L.proj||0) > Number(minStarter||0));
+        const nameHtml = escapeHtml(L.name) + (showDot? ' <span class="bench-dot dot-yellow" title="Bench projects to outscore starter"></span>' : '');
+        leftCell.append(el('div',{}, [ el('div',{class:'player-name', html: nameHtml}), el('div',{class:'player-meta', html: `${L.pos} • ${L.team}`}) ]));
+      }
+      const rightCell = el('td');
+      if(R){
+        const pos = (R.pos||'UNK').toUpperCase();
+        const sArr = rightStarterProjByPos[pos] || [];
+        const minStarter = sArr.length? Math.min(...sArr) : null;
+        const showDot = (minStarter !== null) && (Number(R.proj||0) > Number(minStarter||0));
+        const nameHtml = escapeHtml(R.name) + (showDot? ' <span class="bench-dot dot-yellow" title="Bench projects to outscore starter"></span>' : '');
+        rightCell.append(el('div',{}, [ el('div',{class:'player-name', html: nameHtml}), el('div',{class:'player-meta', html: `${R.pos} • ${R.team}`}) ]));
+      }
+      const lcur = L ? (Number(L.current||0).toFixed(2)) : '';
+      const rcur = R ? (Number(R.current||0).toFixed(2)) : '';
+      const lproj = L ? (Number(L.proj||0).toFixed(2)) : '';
+      const rproj = R ? (Number(R.proj||0).toFixed(2)) : '';
+      const leftScoreTd = el('td'); leftScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: lcur}), el('div',{class:'ps-proj', html: lproj}) ]));
+      const rightScoreTd = el('td'); rightScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: rcur}), el('div',{class:'ps-proj', html: rproj}) ]));
+      const tr = el('tr',{}, [ leftCell, leftScoreTd, rightScoreTd, rightCell ]);
+      tr.classList.add('bench'); tbody.append(tr);
+    }
+  }
+
+  tbl.append(tbody);
+  sumDiv.append(tbl);
 }
 async function matchupPreview(leagueId, week, league, users, rosters, players, projFn, myRid, myTeam){
   let matchups=[]; try{ matchups = await fetchJSON(`https://api.sleeper.app/v1/league/${leagueId}/matchups/${week}`);}catch{}
@@ -242,71 +412,36 @@ async function matchupPreview(leagueId, week, league, users, rosters, players, p
   const rosterById = Object.fromEntries(rosters.map(r=>[r.roster_id,r]));
   const teamName = (rid)=>{ const r=rosterById[rid]||{}; const u=userById[r.owner_id]||{}; return (u.metadata?.team_name)||u.display_name||(rid?`Team ${rid}`:null); };
   const starters = (rid)=>{ const m=byRid.get(rid)||{}; const r=rosterById[rid]||{}; return (m.starters||r.starters||[]).filter(pid=>pid!=='0'); };
-  const startersProj = (rid)=> starters(rid).map(pid=>{ const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0}; });
+  // starters with projections and best-effort current points (from matchup payloads)
+  const startersProj = (rid)=> starters(rid).map(pid=>{
+    const m = players[pid]||{};
+    const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
+    const mm = byRid.get(rid) || {};
+    let cur = 0;
+    if (mm?.players_points && mm.players_points[pid] != null) cur = Number(mm.players_points[pid]) || 0;
+    else if (mm?.player_points && mm.player_points[pid] != null) cur = Number(mm.player_points[pid]) || 0;
+    else if (mm?.points && typeof mm.points === 'object' && mm.points[pid] != null) cur = Number(mm.points[pid]) || 0;
+    return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0, current: cur };
+  });
+  const bench = (rid)=>{ const m=byRid.get(rid)||{}; const r=rosterById[rid]||{}; const all = (m.players||r.players||[]).filter(pid=>pid!=='0'); const s = new Set(starters(rid)); return all.filter(pid=>!s.has(pid)); };
+  const benchProj = (rid)=> bench(rid).map(pid=>{ const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); const mm = byRid.get(rid)||{}; let cur = 0; if(mm?.players_points && mm.players_points[pid] != null) cur = Number(mm.players_points[pid])||0; else if(mm?.player_points && mm.player_points[pid] != null) cur = Number(mm.player_points[pid])||0; else if(mm?.points && typeof mm.points === 'object' && mm.points[pid] != null) cur = Number(mm.points[pid])||0; return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0, current: cur }; });
   let oppRid = null; if (myM){ const mid=myM.matchup_id; const opp = matchups.find(m=>m.matchup_id===mid && m.roster_id!==myRid); oppRid = opp?.roster_id ?? null; }
   const myStart = startersProj(myRid); const oppStart = oppRid ? startersProj(oppRid) : [];
-  return { week, me:{ team_name:myTeam, projected_total:+myStart.reduce((s,p)=>s+p.proj,0).toFixed(2) }, opponent:{ team_name:teamName(oppRid), projected_total:+oppStart.reduce((s,p)=>s+p.proj,0).toFixed(2) }, myStart, oppStart };
+  const myBench = benchProj(myRid);
+  const oppBench = oppRid ? benchProj(oppRid) : [];
+  const getPoints = (rid)=>{ const m=byRid.get(rid)||{}; return Number(m?.points ?? m?.points_total ?? m?.team_points ?? m?.score ?? m?.total ?? 0) || 0; };
+  const myCurrent = getPoints(myRid);
+  const oppCurrent = getPoints(oppRid);
+  return {
+    week,
+    me: { team_name: myTeam, projected_total: +myStart.reduce((s,p)=>s+p.proj,0).toFixed(2), current_total: myCurrent },
+    opponent: { team_name: teamName(oppRid), projected_total: +oppStart.reduce((s,p)=>s+p.proj,0).toFixed(2), current_total: oppCurrent },
+    myStart, oppStart, myBench, oppBench
+  };
 }
 
 // ===== Bye matrices =====
-function byeMatrixAcrossLeagues(leagues, userId, players, season, weeks = Array.from({length:18},(_,i)=>i+1)){
-  const rows = [];
-  for (const { league, rosters } of Object.values(leagues)) {
-    const my = rosters.find(r => r.owner_id === userId);
-    if (!my) continue;
-    const counts = weeks.map(() => 0);
-    for (const pid of rosterPids(my)) {
-      const meta = players[pid] || {};
-      let b = teamBye(meta.team, season);
-      if (!(Number.isInteger(b) && b >= 1 && b <= 18)) b = Number.isInteger(meta.bye_week) ? meta.bye_week : null;
-      if (Number.isInteger(b) && b >= 1 && b <= 18) counts[b - 1] += 1;
-    }
-    const total = counts.reduce((s, c) => s + c, 0);
-    rows.push({ leagueName: league.name, counts, total });
-  }
-  rows.sort((a,b)=>b.total - a.total || a.leagueName.localeCompare(b.leagueName));
-  return { weeks, rows };
-}
-function renderByeAcrossLeagues(container, data){
-  const headers = ['League', ...data.weeks.map(w => 'W' + w), 'Total'];
-  const rows = data.rows.map(r => [r.leagueName, ...r.counts, r.total]);
-  const types = ['str', ...data.weeks.map(()=> 'num'), 'num'];
-  renderSortableTable(container, headers, rows, types);
-}
-
-function activeLeaguePositions(league){
-  const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
-  const base = ['QB','RB','WR','TE','K','DEF'];
-  return base.filter(p => rp.includes(p));
-}
-function byeMatrixByPosition(roster, players, season, league, weeks = Array.from({length:18},(_,i)=>i+1)){
-  const positions = activeLeaguePositions(league);
-  const matrix = Object.fromEntries(positions.map(p=>[p, Object.fromEntries(weeks.map(w=>[w,0]))]));
-  for (const pid of rosterPids(roster)){
-    const m = players[pid] || {};
-    let pos = (m.position||'UNK').toUpperCase();
-    if (pos==='D/ST' || pos==='DST') pos='DEF';
-    if (!positions.includes(pos)) continue;
-    let b = teamBye(m.team, season);
-    if (!(Number.isInteger(b)&&b>=1&&b<=18)) b = Number.isInteger(m.bye_week)?m.bye_week:null;
-    if (Number.isInteger(b) && weeks.includes(b)) matrix[pos][b] += 1;
-  }
-  return { order: positions, weeks, matrix };
-}
-function renderByePositions(container, {order,weeks,matrix}){
-  const headers=['Pos',...weeks.map(w=>'W'+w),'Total'];
-  const rows=[];
-  const colTotals = weeks.map(()=>0);
-  for (const pos of order){
-    const counts = weeks.map((w,i)=>{ const v=(matrix[pos]||{})[w]||0; colTotals[i]+=v; return v; });
-    const total = counts.reduce((s,c)=>s+c,0);
-    rows.push([pos, ...counts, total]);
-  }
-  rows.push(['TOTAL', ...colTotals, colTotals.reduce((s,c)=>s+c,0)]);
-  renderTable(container, headers, rows);
-}
-
-// ===== Exposures (user summary) =====
+  
 function ownedExposuresAcrossLeagues(leagues, userId) {
   const counter = new Map();
   for (const { rosters } of Object.values(leagues)) {
@@ -391,70 +526,312 @@ async function opponentExposureLeagues(leagues, userId, week){
   return m;
 }
 
+// Build a bye matrix aggregated across the user's leagues.
+// Returns { weeks: [1..18], rows: [ { rosterName, weekMap: {week: [playerNames...] } } ] }
+function byeMatrixAcrossLeagues(leagues, userId, players, season){
+  const weeks = Array.from({length:18},(_,i)=>i+1);
+  const rows = [];
+  for(const entry of Object.values(leagues||{})){
+    const { league, rosters, users } = entry;
+    const my = rosters.find(r=>r.owner_id===userId);
+    if(!my) continue;
+    const user = users.find(u=>u.user_id===my.owner_id) || {};
+    const rosterName = user.metadata?.team_name || user.display_name || `Team ${my.roster_id}`;
+    const rr = rosterRows(my, players);
+    const weekMap = Object.fromEntries(weeks.map(w=>[w,[]]));
+    for(const r of rr){
+      let bye = teamBye(r.team, season);
+      if(!(Number.isInteger(bye)&&bye>=1&&bye<=18)) bye = Number.isInteger(r.bye)?r.bye:null;
+      if(Number.isInteger(bye) && weekMap[bye]) weekMap[bye].push(r.name);
+    }
+    rows.push({ rosterName, weekMap });
+  }
+  return { weeks, rows };
+}
+
+// Render the cross-league bye matrix into a container
+function renderByeAcrossLeagues(container, data){
+  if(!container) return;
+  if(!data || !Array.isArray(data.rows) || data.rows.length===0){ container.innerHTML = '<div class="note">No bye data available.</div>'; return; }
+  const weeks = data.weeks || Array.from({length:18},(_,i)=>i+1);
+  const table = el('table');
+  const thead = el('thead');
+  const headRow = el('tr'); headRow.append(el('th',{html:'Team'})); for(const w of weeks) headRow.append(el('th',{html:'W'+w})); thead.append(headRow);
+  const tbody = el('tbody');
+  for(const row of data.rows){
+    const tr = el('tr'); tr.append(el('td',{html:row.rosterName}));
+    for(const w of weeks){
+      const names = row.weekMap[w]||[];
+      const span = el('span',{html: names.length>0?String(names.length):'—'});
+      if(names.length>0) span.setAttribute('data-tooltip', names.join('\n'));
+      const cell = el('td'); cell.append(span); tr.append(cell);
+    }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody); container.innerHTML=''; container.append(table);
+}
+
+// Build a bye matrix for a single roster, grouped by position.
+// Returns { weeks: [1..18], positions: [pos], data: { pos -> { week -> [names] } } }
+function byeMatrixByPosition(roster, players, season, league){
+  const weeks = Array.from({length:18},(_,i)=>i+1);
+  const rows = rosterRows(roster, players);
+  const posMap = {};
+  for(const r of rows){
+    const pos = (r.pos||'UNK').toUpperCase(); if(!posMap[pos]) posMap[pos] = {};
+    let bye = teamBye(r.team, season);
+    if(!(Number.isInteger(bye)&&bye>=1&&bye<=18)) bye = Number.isInteger(r.bye)?r.bye:null;
+    const wk = Number.isInteger(bye)?bye:null;
+    if(wk){ posMap[pos][wk] = posMap[pos][wk] || []; posMap[pos][wk].push(r.name); }
+  }
+  const positions = Object.keys(posMap).sort();
+  return { weeks, positions, data: posMap };
+}
+
+// Render bye-by-position table for a league
+function renderByePositions(container, byeData){
+  if(!container) return;
+  if(!byeData || !byeData.positions || byeData.positions.length===0){ container.innerHTML = '<div class="note">No bye-by-position data to show.</div>'; return; }
+  const weeks = byeData.weeks || Array.from({length:18},(_,i)=>i+1);
+  const table = el('table');
+  const thead = el('thead');
+  const headRow = el('tr'); headRow.append(el('th',{html:'Pos'})); for(const w of weeks) headRow.append(el('th',{html:'W'+w})); thead.append(headRow);
+  const tbody = el('tbody');
+  for(const pos of byeData.positions){
+    const tr = el('tr'); tr.append(el('td',{html:pos}));
+    for(const w of weeks){
+      const names = (byeData.data[pos] && byeData.data[pos][w]) || [];
+      const span = el('span',{html: names.length>0?String(names.length):'—'});
+      if(names.length>0) span.setAttribute('data-tooltip', names.join('\n'));
+      const cell = el('td'); cell.append(span); tr.append(cell);
+    }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody); container.innerHTML=''; container.append(table);
+}
+
 async function renderUserSummary(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
 
   const week=+($('#weekSelect').value||1); const seasonSel=+($('#seasonMain').value||2025);
 
-  // Root For
-  const haveMap = ownedExposuresAcrossLeagues(g.leagues, g.userId);
-  const vsMap   = await opponentExposuresAcrossLeagues(g.leagues, g.userId, week);
-
-  const rowsFor = [];
-  const haveListMap = ownedExposureLeagues(g.leagues, g.userId);
-  const oppListMap = await opponentExposureLeagues(g.leagues, g.userId, week);
-  for (const [pid, haveCount] of haveMap.entries()) {
-    if (haveCount < 2) continue;
-    const m = g.players[pid] || {};
-    const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
-    const pos = (m.position || 'UNK').toUpperCase();
-    const team = m.team || 'FA';
-    const vsCount = vsMap.get(pid) || 0;
-    const haveLeagues = haveListMap.get(String(pid)) || [];
-    const oppLeagues = oppListMap.get(String(pid)) || [];
-    rowsFor.push([name, pos, team, {v:haveCount, d:haveCount, ttip: haveLeagues.join('\n')}, {v:vsCount, d:vsCount, ttip: oppLeagues.join('\n')}]);
-  }
-  rowsFor.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
-  if (rowsFor.length === 0) {
-    $('#usRootForTable').innerHTML = '<div class="note">No players with 2+ exposures.</div>';
-  } else {
-    renderSortableTable($('#usRootForTable'),
-      ['Player','Pos','Team','For','Against'],
-      rowsFor, ['str','str','str','num','num']);
-  }
-
-  // Root Against
-  const rowsAgainst = [];
-  for (const [pid, vsCount] of vsMap.entries()) {
-    if (vsCount < 2) continue;
-    const m = g.players[pid] || {};
-    const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
-    const pos = (m.position || 'UNK').toUpperCase();
-    const team = m.team || 'FA';
-    const haveCount = haveMap.get(pid) || 0;
-    const haveLeagues = haveListMap.get(String(pid)) || [];
-    const oppLeagues = oppListMap.get(String(pid)) || [];
-    rowsAgainst.push([name, pos, team, {v:vsCount,d:vsCount, ttip: oppLeagues.join('\n')}, {v:haveCount,d:haveCount, ttip: haveLeagues.join('\n')}]);
-  }
-  rowsAgainst.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
-  if (rowsAgainst.length === 0) {
-    $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with 2+ exposures this week.</div>';
-  } else {
-    renderSortableTable($('#usRootAgainstTable'),
-      ['Player','Pos','Team','Against','For'],
-      rowsAgainst, ['str','str','str','num','num']);
-  }
+  // render rooting interest tables (unfiltered)
+  await renderRootingInterestTables(week);
 
   // Projections (arrow only on higher score)
-  $('#usProjTable').innerHTML = '<div class="note">Calculating projections…</div>';
-  const projRows = await userSummaryProjections(g.leagues, g.players, week);
-  renderTable($('#usProjTable'), ['League','My Proj','Opp Proj','Opponent'], projRows);
+  // projections tab removed — no-op
 
   // Cross-league season bye matrix
   const matrixData = byeMatrixAcrossLeagues(g.leagues, g.userId, g.players, seasonSel);
   renderByeAcrossLeagues($('#usByeMatrix'), matrixData);
   // Matchup overview cards
   await renderUserMatchups(week, seasonSel);
+
+  // wire up game filter for Rooting Interest
+  wireGameFilter(week);
+}
+
+// Render the Rooting Interest tables (Root For / Root Against).
+// If filterTeams is an array of team codes (normalized), only include players from those teams.
+async function renderRootingInterestTables(week, filterTeams=null){
+  try{
+    const haveMap = ownedExposuresAcrossLeagues(g.leagues, g.userId);
+    const vsMap   = await opponentExposuresAcrossLeagues(g.leagues, g.userId, week);
+    const haveListMap = ownedExposureLeagues(g.leagues, g.userId);
+    const oppListMap = await opponentExposureLeagues(g.leagues, g.userId, week);
+
+    const fset = (Array.isArray(filterTeams) && filterTeams.length>0) ? new Set(filterTeams.map(t=>normalizeTeam(t))) : null;
+
+    // build a set of candidate pids (union of exposures)
+    const candidate = new Set([...(haveMap.keys?.() || []), ...(vsMap.keys?.() || [])]);
+    // also include any players from filtered teams (in case exposures maps miss them)
+    if(fset){
+      for(const [pid,m] of Object.entries(g.players||{})){
+        const team = normalizeTeam(m.team||'');
+        if(fset.has(team)) candidate.add(String(pid));
+      }
+    }
+
+    const rowsFor = [];
+    const rowsAgainst = [];
+    for(const pid of candidate){
+      const m = g.players[String(pid)] || {};
+      const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
+      const pos = (m.position || 'UNK').toUpperCase();
+      const team = normalizeTeam(m.team || 'FA');
+      if(fset && !fset.has(team)) continue;
+      const haveCount = haveMap.get ? (haveMap.get(pid) || 0) : 0;
+      const vsCount = vsMap.get ? (vsMap.get(pid) || 0) : 0;
+      const haveLeagues = haveListMap.get(String(pid)) || [];
+      const oppLeagues = oppListMap.get(String(pid)) || [];
+      const needFor = fset ? 1 : 2;
+      const needAgainst = fset ? 1 : 2;
+      if(haveCount >= needFor){ rowsFor.push([name, pos, team, {v:haveCount, d:haveCount, ttip: haveLeagues.join('\n')}, {v:vsCount, d:vsCount, ttip: oppLeagues.join('\n')}]); }
+      if(vsCount >= needAgainst){ rowsAgainst.push([name, pos, team, {v:vsCount,d:vsCount, ttip: oppLeagues.join('\n')}, {v:haveCount,d:haveCount, ttip: haveLeagues.join('\n')}]); }
+    }
+
+    rowsFor.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
+    if (rowsFor.length === 0) {
+      $('#usRootForTable').innerHTML = '<div class="note">No players with exposures meeting the threshold.</div>';
+    } else {
+      renderSortableTable($('#usRootForTable'), ['Player','Pos','Team','For','Against'], rowsFor, ['str','str','str','num','num']);
+    }
+
+    rowsAgainst.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
+    if (rowsAgainst.length === 0) {
+      $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with exposures meeting the threshold this week.</div>';
+    } else {
+      renderSortableTable($('#usRootAgainstTable'), ['Player','Pos','Team','Against','For'], rowsAgainst, ['str','str','str','num','num']);
+    }
+  }catch(e){ console.warn('renderRootingInterestTables failed', e); }
+}
+
+// Try to fetch schedule for a week from Sleeper. Fallback to a minimal mapping if unavailable.
+async function fetchWeekGames(week, season=+($('#seasonMain').value||2025)){
+  // Prefer ESPN scoreboard API for a reliable public NFL schedule
+  try{
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${encodeURIComponent(week)}&season=${encodeURIComponent(season)}`;
+    const data = await fetchJSON(url);
+    const events = data?.events || [];
+    const out = [];
+    for(const ev of events){
+      const comps = ev?.competitions || [];
+      if(!comps[0]) continue;
+      const comp = comps[0];
+      const compsTeams = comp.competitors || [];
+      const away = compsTeams.find(c=>c.homeAway==='away');
+      const home = compsTeams.find(c=>c.homeAway==='home');
+      const awayAb = away?.team?.abbreviation || away?.team?.shortDisplayName || null;
+      const homeAb = home?.team?.abbreviation || home?.team?.shortDisplayName || null;
+      if(awayAb && homeAb){ out.push({ away_team: awayAb.toUpperCase(), home_team: homeAb.toUpperCase(), label: `${awayAb.toUpperCase()} @ ${homeAb.toUpperCase()}` }); }
+    }
+    if(out.length>0) return out;
+  }catch(e){ console.warn('ESPN schedule fetch failed', e); }
+
+  // If direct ESPN fetch failed (CORS or network), try via a public CORS proxy
+  try{
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${encodeURIComponent(week)}&season=${encodeURIComponent(season)}`;
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const data = await fetchJSON(proxy);
+    const events = data?.events || [];
+    const out = [];
+    for(const ev of events){
+      const comps = ev?.competitions || [];
+      if(!comps[0]) continue;
+      const comp = comps[0];
+      const compsTeams = comp.competitors || [];
+      const away = compsTeams.find(c=>c.homeAway==='away');
+      const home = compsTeams.find(c=>c.homeAway==='home');
+      const awayAb = away?.team?.abbreviation || away?.team?.shortDisplayName || null;
+      const homeAb = home?.team?.abbreviation || home?.team?.shortDisplayName || null;
+      if(awayAb && homeAb){ out.push({ away_team: awayAb.toUpperCase(), home_team: homeAb.toUpperCase(), label: `${awayAb.toUpperCase()} @ ${homeAb.toUpperCase()}` }); }
+    }
+    if(out.length>0) return out;
+  }catch(e){ console.warn('ESPN proxy schedule fetch failed', e); }
+
+  // fallback: try Sleeper schedule endpoint (best-effort)
+  try{
+    const games = await fetchJSON(`https://api.sleeper.app/v1/league/nfl/schedule/${season}`);
+    if(Array.isArray(games)) return games.filter(g=>Number(g.week)===Number(week));
+    if(typeof games==='object'){ const arr = Object.values(games).flat(); return arr.filter(g=>Number(g.week)===Number(week)); }
+  }catch(e){ console.warn('Sleeper schedule fetch failed', e); }
+  // Final fallback: STATIC_SCHEDULE embedded in the app
+  try{
+    const s = String(season);
+    const w = String(week);
+    const arr = (STATIC_SCHEDULE[s] && STATIC_SCHEDULE[s][w]) || null;
+    if(Array.isArray(arr) && arr.length>0){
+      return arr.map(it=>({ away_team: it.away_team.toUpperCase(), home_team: it.home_team.toUpperCase(), label: `${it.away_team.toUpperCase()} @ ${it.home_team.toUpperCase()}` }));
+    }
+  }catch(e){}
+
+  return [];
+}
+
+function wireGameFilter(week){
+  // if week not provided, read from top-level week selector
+  const wk = (typeof week === 'number' && week) ? week : +($('#weekSelect')?.value || 1);
+  const sel = $('#usGameSelect'); const btn = $('#usLoadGames'); const playersWrap = $('#usGamePlayers');
+  if(!sel || !btn || !playersWrap) return;
+  sel.innerHTML = '<option value="">All games (select week)</option>';
+  const doLoadGames = async ()=>{
+    btn.disabled = true; btn.textContent='Loading…';
+    try{
+  const games = await fetchWeekGames(wk);
+      sel.innerHTML = '<option value="">Select a game…</option>';
+      if(Array.isArray(games) && games.length>0){
+        for(const g of games){
+          // normalize team codes when storing in option value so comparisons match g.players
+          const awayCode = normalizeTeam(g.away_team);
+          const homeCode = normalizeTeam(g.home_team);
+          const id = awayCode && homeCode ? `${awayCode}-${homeCode}` : (g.game_id||JSON.stringify(g));
+          const label = g.away_team && g.home_team ? `${g.away_team} @ ${g.home_team}` : (g.title||id);
+          const o = el('option',{value:id, html: label}); sel.append(o);
+        }
+      } else {
+        // No NFL schedule from ESPN or Sleeper for this week — offer an opt-in to load fantasy matchups
+        sel.innerHTML = '';
+        sel.append(el('option',{value:'', html: 'No NFL games found for this week'}));
+        const info = el('div',{class:'note', html: 'NFL schedule not available. You can optionally load fantasy matchups from your leagues instead (explicit).'});
+        const btnWrap = el('div',{},[
+          el('button',{type:'button', id:'usShowFantasy', style:'margin-top:8px;padding:6px 10px'}, 'Show fantasy matchups')
+        ]);
+        // place the info + button below dropdown
+        playersWrap.parentNode.insertBefore(info, playersWrap);
+        playersWrap.parentNode.insertBefore(btnWrap, playersWrap);
+        const fantasyLoader = async ()=>{
+          // remove helper nodes
+          info.remove(); btnWrap.remove();
+          // aggregate matchups from the user's leagues for this week
+          const seen = new Set();
+          const pairs = [];
+          await Promise.all(Object.values(g.leagues).map(async (entry)=>{
+            try{
+              const m = await fetchJSON(`https://api.sleeper.app/v1/league/${entry.league.league_id}/matchups/${wk}`);
+              if(!Array.isArray(m)) return;
+              const rosterById = Object.fromEntries((entry.rosters||[]).map(r=>[r.roster_id,r]));
+              const userById = Object.fromEntries((entry.users||[]).map(u=>[u.user_id,u]));
+              for(const mk of m){
+                const a = mk.roster_id; const mid = mk.matchup_id;
+                const opp = m.find(x=>x.matchup_id===mid && x.roster_id!==a);
+                if(!opp) continue;
+                const rA = rosterById[a] || {}; const rB = rosterById[opp.roster_id] || {};
+                const uA = userById[rA.owner_id] || {}; const uB = userById[rB.owner_id] || {};
+                const nameA = uA.metadata?.team_name || uA.display_name || `Team ${rA.roster_id||a}`;
+                const nameB = uB.metadata?.team_name || uB.display_name || `Team ${rB.roster_id||opp.roster_id}`;
+                const label = `${nameA} @ ${nameB}`;
+                if(!seen.has(label)) { seen.add(label); pairs.push({label, id: `${a}-${opp.roster_id}`}); }
+              }
+            }catch(e){}
+          }));
+          if(pairs.length>0){ for(const p of pairs){ sel.append(el('option',{value:p.id, html:p.label})); } }
+          else { sel.innerHTML = '<option value="">No fantasy matchups found either</option>'; }
+        };
+        document.getElementById('usShowFantasy')?.addEventListener('click', fantasyLoader);
+      }
+    }catch(err){ console.warn('load games failed', err); sel.innerHTML='<option value="">Failed to load games</option>'; }
+    btn.disabled=false; btn.textContent='Load games';
+  };
+  btn.onclick = doLoadGames;
+  // auto-load when user opens the dropdown or focuses it
+  sel.addEventListener('focus', ()=>{ if(sel.options.length<=1) doLoadGames(); });
+  sel.addEventListener('mousedown', ()=>{ if(sel.options.length<=1) doLoadGames(); });
+
+  // reload games when top-level week selector changes
+  const topWeek = $('#weekSelect');
+  if(topWeek){ topWeek.removeEventListener('change', topWeek._usGListener||(()=>{})); topWeek._usGListener = ()=>{ sel.innerHTML = '<option value="">All games (select week)</option>'; doLoadGames(); }; topWeek.addEventListener('change', topWeek._usGListener); }
+
+  sel.onchange = async ()=>{
+    const v = sel.value;
+    // if no selection, clear any filter (show all in rooting interest)
+    if(!v){ playersWrap.innerHTML=''; await renderRootingInterestTables(wk, null); return; }
+    const parts = v.split('-'); if(parts.length<2){ playersWrap.innerHTML=''; await renderRootingInterestTables(wk, null); return; }
+    const away = normalizeTeam(parts[0]);
+    const home = normalizeTeam(parts[1]);
+    // update rooting interest tables to only include players from the two teams
+    playersWrap.innerHTML='';
+    await renderRootingInterestTables(wk, [away, home]);
+  };
 }
 
 // Render simple matchup cards per league for the user summary
@@ -471,23 +848,42 @@ async function renderUserMatchups(week, season){
       const proj = await projByPid(+league.season, week, 'regular', g.players, league.scoring_settings||{});
       const projFn = pid => proj[String(pid)]||0;
       const prev = await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+  // cache the preview so sidebar badge logic can reflect its findings without needing DOM inspection
+  try{ g.leagues[league.league_id] = g.leagues[league.league_id] || {}; g.leagues[league.league_id].__lastPreview = prev; }catch(e){}
       // short league name: drop year if present at end
       const shortLeague = (league.name||'League').replace(/\s+\b(20\d{2})\b$/,'').trim();
       const leftScore = Number(prev.me.projected_total).toFixed(2);
       const rightScore = Number(prev.opponent.projected_total).toFixed(2);
-      const card = el('div',{class:'matchup-card'},[
+      const myWins = Number(prev.me.projected_total) > Number(prev.opponent.projected_total);
+      const myScoreClass = myWins ? 'mc-score win' : (Number(prev.me.projected_total) < Number(prev.opponent.projected_total) ? 'mc-score lose' : 'mc-score');
+  const card = el('div',{class:'matchup-card','data-league-id': league.league_id},[
         el('div',{class:'mc-head', html: shortLeague}),
         el('div',{class:'mc-body'},[
           el('div',{class:'mc-row'},[
-            el('div',{class:'mc-team'}, `<strong>${prev.me.team_name || 'Me'}</strong>`),
-            el('div',{class:'mc-score'}, `${leftScore}`)
+            el('div',{class:'mc-team'}, prev.me.team_name || 'Me'),
+            el('div',{class: myScoreClass}, `${leftScore}`)
           ]),
           el('div',{class:'mc-row opp'},[
-            el('div',{class:'mc-team'}, `<strong>${prev.opponent.team_name || 'Opponent'}</strong>`),
+            el('div',{class:'mc-team'}, prev.opponent.team_name || 'Opponent'),
             el('div',{class:'mc-score'}, `${rightScore}`)
           ])
         ])
       ]);
+      // clicking a card should open that league and switch to the matchup tab
+      card.addEventListener('click', async ()=>{
+        try{
+          g.mode='league'; g.selected = league.league_id;
+          // mark active in league list and clear User Summary active state
+          document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
+          // ensure summary item is not marked active
+          const s = document.querySelector('#summaryItem'); if(s) s.classList.remove('active');
+          const li = document.querySelector(`#leagueList .league-item[data-id="${league.league_id}"]`);
+          if(li) li.classList.add('active');
+          // render league and switch to matchup tab
+          await renderSelectedLeague();
+          openLeagueTab('tab-matchup');
+        }catch(err){ console.error('Failed to open league from matchup card', err); status('err', 'Failed to open league'); }
+      });
       container.append(card);
     }catch(e){ console.warn('renderUserMatchups failed for', league?.league_id, e); }
   }
@@ -532,32 +928,102 @@ async function userSummaryProjections(leagues, players, week){
 }
 
 // ===== Alerts (badges + collapsible replacements) =====
-async function computeLeagueAlertCount(entry, week, players){
+// Compute alert status for a league for the current user/week
+// Returns { count: number, red: boolean, yellow: boolean }
+async function computeLeagueAlertStatus(entry, week, players){
   const { league, users, rosters } = entry;
   const myRoster = rosters.find(r => r.owner_id === g.userId);
-  if (!myRoster) return 0;
+  if (!myRoster) return { count: 0, red: false, yellow: false };
   const season = +league.season;
   const scoring = league.scoring_settings || {};
   const proj = await projByPid(season, week, 'regular', players, scoring);
   const projFn = (pid) => proj[String(pid)] || 0;
 
-  const myUser = users.find(u => u.user_id === myRoster.owner_id) || {};
-  const myTeamName = (myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster.roster_id}`;
-  const prev = await matchupPreview(league.league_id, week, league, users, rosters, players, projFn, myRoster.roster_id, myTeamName);
+  // starters array from roster (may include '0' placeholders)
+  const starters = (myRoster.starters || []).slice();
+  let red = false;
+  // if there is an empty starting slot
+  if (!Array.isArray(starters) || starters.length === 0 || starters.some(s=>!s || s==='0')) red = true;
 
-  return prev.myStart.filter(x => (x.proj || 0) === 0).length;
+  // build starter projections map by pid and position
+  const starterProjByPid = {};
+  const starterPids = starters.filter(pid=>pid && pid!=='0');
+  for(const pid of starterPids){ starterProjByPid[String(pid)] = +projFn(pid)||0; }
+
+  // count starters with proj === 0
+  const countZero = Object.values(starterProjByPid).filter(v=>Number(v)===0).length;
+  if(countZero>0) red = true;
+
+  // Do not short-circuit — allow downstream logic to decide how to represent red+yellow together
+
+  // build bench list
+  const allPids = new Set([...(myRoster.players||[]), ...(myRoster.starters||[])]);
+  // bench pids = players in roster but not in starters
+  const benchPids = (myRoster.players||[]).filter(pid=>pid && pid!=='0' && !starterPids.includes(pid));
+
+  // map pid -> pos & proj
+  const benchRows = benchPids.map(pid => {
+    const m = players[String(pid)] || {};
+    return { pid: String(pid), pos: ((m.position||'UNK').toUpperCase()), proj: +projFn(pid)||0 };
+  });
+
+  // map starters by pos with their projections
+  const startersByPos = {};
+  for(const pid of starterPids){ const m = players[String(pid)]||{}; const pos = ((m.position||'UNK').toUpperCase()); startersByPos[pos] = startersByPos[pos] || []; startersByPos[pos].push({ pid:String(pid), proj:+projFn(pid)||0 }); }
+
+  // yellow if any bench of same position has proj > any starter proj for that position
+  let yellow = false;
+  for(const b of benchRows){ const sList = startersByPos[b.pos] || []; for(const s of sList){ if(b.proj > (s.proj||0)){ yellow = true; break; } } if(yellow) break; }
+
+  return { count: countZero, red, yellow };
 }
 async function updateLeagueAlertBadges(week){
   const list = $('#leagueList');
   if (!list) return;
   const entries = Object.entries(g.leagues);
   await Promise.all(entries.map(async ([id, entry]) => {
-    let count = 0;
-    try { count = await computeLeagueAlertCount(entry, week, g.players); } catch {}
+    let status = { count: 0, red: false, yellow: false };
+    try { status = await computeLeagueAlertStatus(entry, week, g.players); } catch (e) { /* ignore */ }
+    // If we have a cached preview for this league, use it to force red when any starter proj===0
+    try{
+      const cached = entry.__lastPreview;
+      if (cached && Array.isArray(cached.myStart)){
+        const anyZero = cached.myStart.some(p => Number(p.proj||0) === 0);
+        if (anyZero) status.red = true;
+      }
+    }catch(e){}
     const badge = list.querySelector(`[data-id="${id}"] .alert-badge`);
+    const dot = list.querySelector(`[data-id="${id}"] .league-dot`);
     if (badge){
-      if (count > 0){ badge.textContent = String(count); badge.classList.remove('hidden'); }
+      if (status.count > 0){ badge.textContent = String(status.count); badge.classList.remove('hidden'); }
       else { badge.textContent = '0'; badge.classList.add('hidden'); }
+    }
+    if (dot){
+      // If this league is currently active in the UI, check the rendered matchup DOM for starter/bench dots
+      try{
+        if (g.selected === id){
+          const activeMatchupArea = document.querySelector('#matchupSummary') || document.querySelector('#myStarters') || document.querySelector('#oppStarters');
+          if (activeMatchupArea){
+            const hasRedStarter = !!activeMatchupArea.querySelector('.starter-dot.dot-red');
+            const hasYellowStarter = !!activeMatchupArea.querySelector('.starter-dot.dot-yellow') || !!activeMatchupArea.querySelector('.bench-dot.dot-yellow');
+            if (hasRedStarter) status.red = true;
+            if (hasYellowStarter) status.yellow = true;
+          }
+        }
+      }catch(e){ }
+
+      // render three-dot indicator: red, yellow, green (green means OK)
+      dot.innerHTML = '';
+      const redDot = el('span',{class:'ldot'});
+      const yellowDot = el('span',{class:'ldot'});
+      const greenDot = el('span',{class:'ldot'});
+      // apply active classes
+      if (status.red) redDot.classList.add('red-active');
+      if (status.yellow) yellowDot.classList.add('yellow-active');
+      // green is active only when neither red nor yellow present
+      if (!status.red && !status.yellow) greenDot.classList.add('green-active');
+      dot.append(redDot, yellowDot, greenDot);
+      dot.title = status.red ? 'Starter issue' : (status.yellow ? 'Bench has better projected' : 'All starters OK');
     }
   }));
 }
@@ -731,7 +1197,7 @@ function setWeekOptions(){ const wk=$('#weekSelect'); wk.innerHTML=''; for(let w
 function showControls(){ $('#seasonGroup').classList.remove('hidden'); $('#weekGroup').classList.remove('hidden'); }
 function resetMain(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
-  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#alertsView','#usRootForTable','#usRootAgainstTable','#usProjTable','#usByeMatrix','#waiverTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
+  ['#rosterTable','#posTable','#matchupSummary','#myStarters','#oppStarters','#byeMatrix','#alertsView','#usRootForTable','#usRootAgainstTable','#usByeMatrix','#waiverTable'].forEach(s=>{ const n=$(s); if(n) n.innerHTML=''; });
 }
 function renderLeagueList(active=null){
   const list=$('#leagueList'); list.innerHTML=''; const ids=Object.keys(g.leagues);
@@ -742,20 +1208,22 @@ function renderLeagueList(active=null){
     const myUser=users?.find?.((u)=>u.user_id===myRoster?.owner_id) || {};
     const myTeamName=(myUser.metadata?.team_name) || myUser.display_name || `Team ${myRoster?.roster_id ?? ''}`;
     const rec = myRoster ? ' ' + rosterRecord(myRoster) : '';
-    const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[
-      el('div',{class:'li-info'},[
-        el('div',{class:'li-title', html: league?.name || `League ${id}`}),
-        el('div',{class:'li-sub',   html: (myTeamName || '') + rec })
-      ]),
-      el('span',{class:'alert-badge hidden', 'aria-label':'Alerts for this league', title:'Starters with 0 projected points'},'0')
+    // dot for red/yellow indicator, numeric badge for count
+    const dot = el('span',{class:'league-dot', title:''});
+    const titleWrapper = el('div',{class:'li-info'},[
+      el('div',{class:'li-title', html: league?.name || `League ${id}`}),
+      el('div',{class:'li-sub',   html: (myTeamName || '') + rec })
     ]);
+    const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[ titleWrapper, dot, el('span',{class:'alert-badge hidden', 'aria-label':'Alerts for this league', title:'Starters with 0 projected points'},'0') ]);
     item.addEventListener('click', async ()=>{
       try {
         console.log('League click:', id);
         g.mode='league'; g.selected=id;
         document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active'));
         item.classList.add('active'); $('#summaryItem').classList.remove('active');
-        await renderSelectedLeague();
+  // open the Matchup tab by default when clicking a league
+  openLeagueTab('tab-matchup');
+  await renderSelectedLeague();
       } catch (err) {
         console.error('Error rendering league on click:', err);
         status('err', `Failed to open league: ${err.message || err}`);
@@ -804,7 +1272,8 @@ async function renderSelectedLeague(){
 
     // Matchup preview
     const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
-    renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
+  renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
+  try{ g.leagues[id] = g.leagues[id] || {}; g.leagues[id].__lastPreview = prev; }catch(e){}
 
     // League-specific Bye Matrix (by position groups)
     const byeData = byeMatrixByPosition(myRoster, g.players, season, league);
@@ -837,6 +1306,8 @@ async function renderSelectedLeague(){
 
     $('#userSummary').classList.add('hidden');
     $('#leagueViews').classList.remove('hidden');
+  // ensure sidebar alert badges reflect any changes discovered while rendering this league
+  try{ await updateLeagueAlertBadges(week); }catch(e){}
   } catch (err) {
     console.error('Error in renderSelectedLeague:', err);
     status('err', `Error rendering league: ${err.message || err}`);
@@ -907,18 +1378,27 @@ function wireEvents(){
     await loadForUsername(uname);
   });
 
+  // Refresh button: repull everything from Sleeper for current username
+  const refreshBtn = $('#refreshBtn');
+  if(refreshBtn){
+    refreshBtn.addEventListener('click', async ()=>{
+      const uname = ($('#username').value || '').trim();
+      if(!uname){ status('err','No username to refresh. Enter a username first.'); return; }
+      try{
+        status('', 'Refreshing data from Sleeper…');
+        // Remove all cached entries created by fetchJSON (keys prefixed with cache:)
+        try{
+          const keys = Object.keys(localStorage || {}).filter(k=>k&&k.startsWith('cache:'));
+          for(const k of keys) localStorage.removeItem(k);
+        }catch(e){}
+        await loadForUsername(uname);
+        status('ok','Data refreshed.');
+      }catch(e){ console.error('Refresh failed', e); status('err','Refresh failed.'); }
+    });
+  }
+
   $('#username').addEventListener('input', ()=>{ $('#viewLeaguesBtn').disabled = !$('#username').value.trim(); });
-  $('#manualLeagueId').addEventListener('input', ()=>{ $('#addLeagueBtn').disabled = !$('#manualLeagueId').value.trim(); });
-  $('#addLeagueBtn').addEventListener('click', async ()=>{
-    const id=$('#manualLeagueId').value.trim(); if(!id) return;
-    try{
-      const b=await loadLeagueBundle(id); g.leagues[id]=b; renderLeagueList(g.selected);
-      $('#manualLeagueId').value=''; $('#addLeagueBtn').disabled=true; status('ok','League added. Click it in the list.');
-      const week = +($('#weekSelect').value||1);
-      await updateLeagueAlertBadges(week);
-    }
-    catch(e){ console.error(e); status('err','Could not add that League ID.'); }
-  });
+  // ...existing code...
 
   // Tabs (league + user summary) + waiver jump
   document.addEventListener('click', async (e)=>{
