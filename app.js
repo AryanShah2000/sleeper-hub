@@ -298,6 +298,69 @@ function renderByeAcrossLeagues(container, data){
   renderSortableTable(container, headers, rows, types);
 }
 
+function renderSortableTable(container, headers, rows, types) {
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  if (rows.length === 0) {
+    container.innerHTML = '<div class="note">No data to display.</div>';
+    return;
+  }
+  
+  const table = el('table', { class: 'sortable-table' });
+  
+  // Create header
+  const thead = el('thead');
+  const headerRow = el('tr');
+  headers.forEach((header, i) => {
+    const th = el('th', { 
+      html: header,
+      'data-sort': types[i] || 'str',
+      style: 'cursor: pointer; user-select: none;'
+    });
+    
+    th.onclick = () => sortTable(table, i, types[i] || 'str');
+    headerRow.append(th);
+  });
+  thead.append(headerRow);
+  table.append(thead);
+  
+  // Create body
+  const tbody = el('tbody');
+  rows.forEach(row => {
+    const tr = el('tr');
+    row.forEach((cell, i) => {
+      const td = el('td', { html: cell || '' });
+      if (types[i] === 'num') td.style.textAlign = 'right';
+      if (types[i] === 'bye' && cell > 0) td.style.backgroundColor = '#ffeeee';
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  table.append(tbody);
+  
+  container.append(table);
+}
+
+function sortTable(table, columnIndex, type) {
+  const tbody = table.querySelector('tbody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  
+  const sorted = rows.sort((a, b) => {
+    const aVal = a.cells[columnIndex].textContent.trim();
+    const bVal = b.cells[columnIndex].textContent.trim();
+    
+    if (type === 'num') {
+      return parseFloat(bVal) - parseFloat(aVal); // Descending for numbers
+    } else {
+      return aVal.localeCompare(bVal); // Ascending for strings
+    }
+  });
+  
+  sorted.forEach(row => tbody.append(row));
+}
+
 function activeLeaguePositions(league){
   const rp = (league.roster_positions||[]).map(x=>String(x).toUpperCase());
   const base = ['QB','RB','WR','TE','K','DEF'];
