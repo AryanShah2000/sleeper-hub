@@ -992,12 +992,7 @@ async function updateLeagueAlertBadges(week){
         if (anyZero) status.red = true;
       }
     }catch(e){}
-    const badge = list.querySelector(`[data-id="${id}"] .alert-badge`);
-    const dot = list.querySelector(`[data-id="${id}"] .league-dot`);
-    if (badge){
-      if (status.count > 0){ badge.textContent = String(status.count); badge.classList.remove('hidden'); }
-      else { badge.textContent = '0'; badge.classList.add('hidden'); }
-    }
+  const dot = list.querySelector(`[data-id="${id}"] .league-dot`);
     if (dot){
       // If this league is currently active in the UI, check the rendered matchup DOM for starter/bench dots
       try{
@@ -1214,7 +1209,7 @@ function renderLeagueList(active=null){
       el('div',{class:'li-title', html: league?.name || `League ${id}`}),
       el('div',{class:'li-sub',   html: (myTeamName || '') + rec })
     ]);
-    const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[ titleWrapper, dot, el('span',{class:'alert-badge hidden', 'aria-label':'Alerts for this league', title:'Starters with 0 projected points'},'0') ]);
+  const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[ titleWrapper, dot ]);
     item.addEventListener('click', async ()=>{
       try {
         console.log('League click:', id);
