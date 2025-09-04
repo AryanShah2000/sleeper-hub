@@ -1,64 +1,3 @@
-// ===== League Overview Tab =====
-function renderLeagueOverview(league, users, rosters, players) {
-  const container = document.getElementById('leagueOverview');
-  if (!container) return;
-  if (!Array.isArray(rosters) || !Array.isArray(users)) {
-    container.innerHTML = '<div class="note">Unable to load league overview (missing data).</div>';
-    console.error('League Overview: rosters or users missing', { rosters, users });
-    return;
-  }
-  // Standings: sort by wins, then points for
-  const standings = [...rosters].sort((a, b) => {
-    const aw = +(a.settings?.wins || 0), bw = +(b.settings?.wins || 0);
-    if (bw !== aw) return bw - aw;
-    const apf = +(a.settings?.fpts || 0), bpf = +(b.settings?.fpts || 0);
-    return bpf - apf;
-  });
-  const userMap = Object.fromEntries(users.map(u => [u.user_id, u]));
-  const rows = standings.map(r => {
-    const u = userMap[r.owner_id] || {};
-    const name = u.metadata?.team_name || u.display_name || `Team ${r.roster_id}`;
-    const rec = r.settings ? `(${r.settings.wins||0}-${r.settings.losses||0}${r.settings.ties?'-'+r.settings.ties:''})` : '';
-    const pf = r.settings?.fpts || 0;
-    return [name, rec, pf.toFixed(2), r.roster_id];
-  });
-  // Add click handler for roster modal
-  container.innerHTML = '';
-  const table = el('table');
-  const thead = el('thead');
-  thead.append(el('tr', {}, ['Team', 'Record', 'Points For'].map(h => el('th', { html: h }))));
-  const tbody = el('tbody');
-  rows.forEach(([name, rec, pf, rid]) => {
-    const tr = el('tr');
-    const tdName = el('td', { html: name });
-    tdName.style.cursor = 'pointer';
-    tdName.addEventListener('click', () => showTeamRosterModal(rid, league, users, rosters, players));
-    tr.append(tdName, el('td', { html: rec }), el('td', { html: pf }));
-    tbody.append(tr);
-  });
-  table.append(thead, tbody);
-  container.append(table);
-}
-
-function showTeamRosterModal(rosterId, league, users, rosters, players) {
-  const modal = document.getElementById('teamRosterModal');
-  if (!modal) return;
-  const roster = rosters.find(r => r.roster_id === rosterId);
-  if (!roster) return;
-  const u = users.find(u => u.user_id === roster.owner_id) || {};
-  const name = u.metadata?.team_name || u.display_name || `Team ${rosterId}`;
-  // Build roster table
-  const rows = rosterRows(roster, players).map(r => [r.name, r.pos, r.team]);
-  modal.innerHTML = `<div style="background:#10183a;padding:18px 24px;border-radius:12px;max-width:400px;margin:40px auto;box-shadow:0 8px 32px #000b;position:relative;">
-    <button id="closeRosterModal" style="position:absolute;top:8px;right:12px;font-size:18px;background:none;border:none;color:#fff;cursor:pointer;">&times;</button>
-    <h3 style="margin-top:0">${name} Roster</h3>
-    <table style="width:100%"><thead><tr><th>Player</th><th>Pos</th><th>Team</th></tr></thead><tbody>
-      ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}
-    </tbody></table>
-  </div>`;
-  modal.classList.remove('hidden');
-  document.getElementById('closeRosterModal').onclick = () => modal.classList.add('hidden');
-}
 // ===== App state =====
 let g = { players: null, userId: null, leagues: {}, selected: null, mode: 'summary', waiverPref: null };
 
@@ -278,9 +217,8 @@ async function renderSelectedLeague(){
   const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster.roster_id}`;
 
   $('#contextNote').textContent = `${league.name} • ${league.season}`;
-  $('#posNote').textContent = '';
+  $('#posNote').textContent = `Roster slots: ${rosterPositionsSummary(league)}`;
 
-  renderLeagueOverview(league, users, rosters, g.players);
   renderRoster($('#rosterTable'), myRoster, g.players, season);
 
   const scoring=league.scoring_settings||{}; 
@@ -1039,10 +977,6 @@ function wireEvents(){
       const id=btn1.dataset.tab;
       document.querySelectorAll('#leagueSections > section').forEach(s=>s.classList.toggle('active', s.id===id));
 
-      if (id === 'tab-overview' && g.mode==='league' && g.selected) {
-        const { league, users, rosters } = g.leagues[g.selected];
-        renderLeagueOverview(league, users, rosters, g.players);
-      }
       if (id === 'tab-waivers' && g.mode==='league' && g.selected){
         const { league, rosters } = g.leagues[g.selected];
         const season=+league.season; const week=+($('#weekSelect').value||1);
