@@ -95,7 +95,16 @@
   .matchup-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:8px}
   .matchup-card{background:#07102a;border:1px solid var(--border);border-radius:10px;padding:10px}
   .matchup-card .mc-head{font-weight:700;margin-bottom:8px}
+  .matchup-card .mc-head{ text-align:center }
   .matchup-card .mc-line{font-size:13px;margin:4px 0}
+  .matchup-card .mc-body{display:flex;flex-direction:column;gap:6px}
+  .matchup-card .mc-row{display:flex;align-items:center;justify-content:space-between}
+  .matchup-card .mc-row .mc-team{flex:1;font-size:13px}
+  .matchup-card .mc-score{background:linear-gradient(180deg,#0b2136,#07162a);border:1px solid var(--border);padding:6px 8px;border-radius:8px;min-width:56px;text-align:center;font-weight:800}
+  .matchup-card .mc-row.opp .mc-team{opacity:0.9}
+
+  /* temp tooltip bubble */
+  .__temp-tooltip{color:#dfe9ff}
 </style>
 </head>
 <body>

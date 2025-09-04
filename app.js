@@ -180,7 +180,13 @@ function renderTable(container, headers, rows){
 }
 function renderSortableTable(container, headers, rows, types){
   const table=el('table'), thead=el('thead'), tbody=el('tbody'); let sortCol=-1, sortDir='desc';
-  const parse=(v,t)=>(t==='num'?(Number.isNaN(+v)?null:+v): t==='bye'?(v&&String(v).startsWith('W')?+String(v).slice(1):Number.isNaN(+v)?null:+v) : String(v||''));
+  // parse supports raw values or display objects {v: value, d: display, ttip: '...'}
+  const parse=(v,t)=>{
+    const raw = (v && typeof v === 'object' && v.v !== undefined) ? v.v : v;
+    if(t==='num') return (Number.isNaN(+raw)?null:+raw);
+    if(t==='bye') return (raw&&String(raw).startsWith('W')?+String(raw).slice(1):Number.isNaN(+raw)?null:+raw);
+    return String(raw||'');
+  };
   const cmp=(a,b,t,d)=>{const mul=d==='asc'?1:-1; if(t==='str') return mul*String(a).localeCompare(String(b)); if(a==null&&b==null) return 0; if(a==null) return 1; if(b==null) return -1; return mul*(a-b);};
   function head(){ const tr=el('tr'); headers.forEach((h,i)=>{ const th=el('th'); th.classList.add('sortable'); th.append(el('span',{html:h}), el('span',{class:'arrow',html:''}));
     th.addEventListener('click',()=>{ if(sortCol===i) sortDir=sortDir==='asc'?'desc':'asc'; else{sortCol=i; sortDir='desc';} body(); arrows(); }); tr.append(th);});
@@ -189,7 +195,22 @@ function renderSortableTable(container, headers, rows, types){
   function arrows(){ thead.querySelectorAll('th').forEach((th,i)=>{ th.classList.remove('sorted-asc','sorted-desc'); const a=th.querySelector('.arrow'); if(!a) return;
     if(i===sortCol){ th.classList.add(sortDir==='asc'?'sorted-asc':'sorted-desc'); a.textContent=sortDir==='asc'?'▲':'▼'; } else a.textContent=''; });}
   function body(){ const t=rows.map(r=>({raw:r,key:r.map((c,idx)=>parse(c,types[idx]))})); if(sortCol>=0) t.sort((ra,rb)=>cmp(ra.key[sortCol],rb.key[sortCol],types[sortCol],sortDir));
-    tbody.innerHTML=''; t.forEach(r=>tbody.append(el('tr',{},r.raw.map(c=>el('td',{html:String(c)}))))); }
+    tbody.innerHTML=''; t.forEach(r=>{
+      const tr = el('tr');
+      r.raw.forEach((c,ci)=>{
+        // if cell is an object with d=display and ttip, render span with data-tooltip
+        if(c && typeof c === 'object' && c.d !== undefined){
+          const td = el('td');
+          const span = el('span',{html:String(c.d)});
+          if(c.ttip) span.setAttribute('data-tooltip', String(c.ttip));
+          td.append(span); tr.append(td);
+        } else {
+          tr.append(el('td',{html:String(c)}));
+        }
+      });
+      tbody.append(tr);
+    });
+  }
   head(); body(); arrows(); table.append(thead,tbody); container.innerHTML=''; container.append(table);
 }
 
@@ -297,6 +318,19 @@ function ownedExposuresAcrossLeagues(leagues, userId) {
   }
   return counter;
 }
+// Return Map<pid, Array<leagueName>> for leagues where the user has the player
+function ownedExposureLeagues(leagues, userId){
+  const m = new Map();
+  for (const entry of Object.values(leagues)){
+    const { league, rosters } = entry;
+    const my = rosters.find(r => r.owner_id === userId);
+    if(!my) continue;
+    const pids = new Set([...(my.players||[]), ...(my.starters||[]), ...(my.taxi||[])]);
+    pids.delete('0');
+    for(const pid of pids){ const key=String(pid); const arr = m.get(key) || []; arr.push(league?.name || league?.league_id || 'League'); m.set(key, arr); }
+  }
+  return m;
+}
 async function opponentExposuresAcrossLeagues(leagues, userId, week) {
   const counter = new Map();
   await Promise.all(Object.values(leagues).map(async ({ league, users, rosters }) => {
@@ -324,6 +358,39 @@ async function opponentExposuresAcrossLeagues(leagues, userId, week) {
   return counter;
 }
 
+// Return Map<pid, Array<leagueName>> for opponent starters across leagues where user has a roster
+async function opponentExposureLeagues(leagues, userId, week){
+  const m = new Map();
+  await Promise.all(Object.values(leagues).map(async ({ league, users, rosters }) => {
+    const my = rosters.find(r => r.owner_id === userId);
+    if (!my) return;
+    let matchups = [];
+    try { matchups = await fetchJSON(`https://api.sleeper.app/v1/league/${league.league_id}/matchups/${week}`); } catch {}
+
+    const byRid = new Map((matchups || []).filter(mk => mk && typeof mk === 'object').map(mk => [mk.roster_id, mk]));
+    const myM = byRid.get(my.roster_id);
+    let oppRid = null;
+    if (myM) {
+      const mid = myM.matchup_id;
+      const opp = (matchups || []).find(mk => mk.matchup_id === mid && mk.roster_id !== my.roster_id);
+      oppRid = opp?.roster_id ?? null;
+    }
+    if (!oppRid) return;
+
+    const rosterById = Object.fromEntries(rosters.map(r => [r.roster_id, r]));
+    const oppMatch = byRid.get(oppRid) || {};
+    const oppRoster = rosterById[oppRid] || {};
+    const starters = (oppMatch.starters || oppRoster.starters || []).filter(pid => pid !== '0');
+    for (const pid of starters) {
+      const key = String(pid);
+      const arr = m.get(key) || [];
+      arr.push(league?.name || league?.league_id || 'League');
+      m.set(key, arr);
+    }
+  }));
+  return m;
+}
+
 async function renderUserSummary(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.remove('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
 
@@ -334,6 +401,8 @@ async function renderUserSummary(){
   const vsMap   = await opponentExposuresAcrossLeagues(g.leagues, g.userId, week);
 
   const rowsFor = [];
+  const haveListMap = ownedExposureLeagues(g.leagues, g.userId);
+  const oppListMap = await opponentExposureLeagues(g.leagues, g.userId, week);
   for (const [pid, haveCount] of haveMap.entries()) {
     if (haveCount < 2) continue;
     const m = g.players[pid] || {};
@@ -341,14 +410,16 @@ async function renderUserSummary(){
     const pos = (m.position || 'UNK').toUpperCase();
     const team = m.team || 'FA';
     const vsCount = vsMap.get(pid) || 0;
-    rowsFor.push([name, pos, team, haveCount, vsCount]);
+    const haveLeagues = haveListMap.get(String(pid)) || [];
+    const oppLeagues = oppListMap.get(String(pid)) || [];
+    rowsFor.push([name, pos, team, {v:haveCount, d:haveCount, ttip: haveLeagues.join('\n')}, {v:vsCount, d:vsCount, ttip: oppLeagues.join('\n')}]);
   }
-  rowsFor.sort((a, b) => b[3] - a[3] || a[0].localeCompare(b[0]));
+  rowsFor.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
   if (rowsFor.length === 0) {
     $('#usRootForTable').innerHTML = '<div class="note">No players with 2+ exposures.</div>';
   } else {
     renderSortableTable($('#usRootForTable'),
-      ['Player','Pos','Team','Leagues (Have)','Leagues (Against)'],
+      ['Player','Pos','Team','For','Against'],
       rowsFor, ['str','str','str','num','num']);
   }
 
@@ -361,14 +432,16 @@ async function renderUserSummary(){
     const pos = (m.position || 'UNK').toUpperCase();
     const team = m.team || 'FA';
     const haveCount = haveMap.get(pid) || 0;
-    rowsAgainst.push([name, pos, team, vsCount, haveCount]);
+    const haveLeagues = haveListMap.get(String(pid)) || [];
+    const oppLeagues = oppListMap.get(String(pid)) || [];
+    rowsAgainst.push([name, pos, team, {v:vsCount,d:vsCount, ttip: oppLeagues.join('\n')}, {v:haveCount,d:haveCount, ttip: haveLeagues.join('\n')}]);
   }
-  rowsAgainst.sort((a, b) => b[3] - a[3] || a[0].localeCompare(b[0]));
+  rowsAgainst.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
   if (rowsAgainst.length === 0) {
     $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with 2+ exposures this week.</div>';
   } else {
     renderSortableTable($('#usRootAgainstTable'),
-      ['Player','Pos','Team','Leagues (Against)','Leagues (Have)'],
+      ['Player','Pos','Team','Against','For'],
       rowsAgainst, ['str','str','str','num','num']);
   }
 
@@ -398,18 +471,44 @@ async function renderUserMatchups(week, season){
       const proj = await projByPid(+league.season, week, 'regular', g.players, league.scoring_settings||{});
       const projFn = pid => proj[String(pid)]||0;
       const prev = await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
-
+      // short league name: drop year if present at end
+      const shortLeague = (league.name||'League').replace(/\s+\b(20\d{2})\b$/,'').trim();
+      const leftScore = Number(prev.me.projected_total).toFixed(2);
+      const rightScore = Number(prev.opponent.projected_total).toFixed(2);
       const card = el('div',{class:'matchup-card'},[
-        el('div',{class:'mc-head', html: `${league.name} • ${league.season}`}),
+        el('div',{class:'mc-head', html: shortLeague}),
         el('div',{class:'mc-body'},[
-          el('div',{class:'mc-line', html:`<strong>${prev.me.team_name || 'Me'}</strong>: ${Number(prev.me.projected_total).toFixed(2)}`}),
-          el('div',{class:'mc-line', html:`<strong>${prev.opponent.team_name || 'Opponent'}</strong>: ${Number(prev.opponent.projected_total).toFixed(2)}`})
+          el('div',{class:'mc-row'},[
+            el('div',{class:'mc-team'}, `<strong>${prev.me.team_name || 'Me'}</strong>`),
+            el('div',{class:'mc-score'}, `${leftScore}`)
+          ]),
+          el('div',{class:'mc-row opp'},[
+            el('div',{class:'mc-team'}, `<strong>${prev.opponent.team_name || 'Opponent'}</strong>`),
+            el('div',{class:'mc-score'}, `${rightScore}`)
+          ])
         ])
       ]);
       container.append(card);
     }catch(e){ console.warn('renderUserMatchups failed for', league?.league_id, e); }
   }
 }
+
+// delegated tooltip handler for elements with data-tooltip
+document.addEventListener('mouseover', (e)=>{
+  const t = e.target.closest('[data-tooltip]');
+  if(!t) return;
+  const tip = t.getAttribute('data-tooltip');
+  if(!tip) return;
+  let bubble = document.querySelector('.__temp-tooltip');
+  if(!bubble){ bubble = document.createElement('div'); bubble.className='__temp-tooltip'; document.body.appendChild(bubble); }
+  bubble.textContent = tip;
+  const rect = t.getBoundingClientRect();
+  bubble.style.position='fixed'; bubble.style.zIndex=9999; bubble.style.maxWidth='320px'; bubble.style.whiteSpace='pre-wrap';
+  bubble.style.left = Math.min(window.innerWidth - 20, rect.right + 8) + 'px';
+  bubble.style.top = Math.max(8, rect.top) + 'px';
+  bubble.style.padding='8px 10px'; bubble.style.background='#07102a'; bubble.style.border='1px solid rgba(255,255,255,0.08)'; bubble.style.borderRadius='8px';
+});
+document.addEventListener('mouseout', (e)=>{ const leave = e.target.closest('[data-tooltip]'); if(!leave) return; const bubble = document.querySelector('.__temp-tooltip'); if(bubble) bubble.remove(); });
 
 async function userSummaryProjections(leagues, players, week){
   const rows=[];
