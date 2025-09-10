@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>My Fantasy Agent</title>
+<!-- Inline favicon to avoid a /favicon.ico 404 in local dev -->
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%235ee0ff'/><text x='50%' y='54%' font-size='30' text-anchor='middle' fill='%2300121a' font-family='Arial,Helvetica,sans-serif'>⚽</text></svg>">
 <style>
   :root{ --bg:#0b1020; --panel:#121a35; --muted:#6b7aa6; --text:#e8ecff; --accent:#5ee0ff; --accent2:#84ffb5; --warn:#ffd166; --border: rgba(255,255,255,0.12); }
   *{box-sizing:border-box}
@@ -12,7 +14,7 @@
   h1{margin:0;font-size:20px;letter-spacing:.2px;display:flex;align-items:center;gap:10px}
   .logo-bot svg{width:24px;height:24px;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
 
-  .layout{max-width:1280px;margin:16px auto;padding:0 16px;display:grid;grid-template-columns:360px 1fr;gap:16px}
+  .layout{max-width:1280px;margin:16px auto;padding:0 16px;display:grid;grid-template-columns:420px 1fr;gap:16px}
   aside{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:72vh;display:flex;flex-direction:column}
   .main{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column}
 
@@ -32,10 +34,11 @@
   .row-2{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:6px}
   .nav-head{font-size:12px;color:#8fa1ff99;margin:12px 0 6px}
   .league-list{display:flex;flex-direction:column;gap:6px;overflow:auto; padding-right:2px}
-  .league-item, .summary-item{display:flex;gap:8px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px;background:#0e1734;cursor:pointer; position:relative; justify-content:space-between}
+  /* make league rows a fixed 3-column grid so the mini-score column is constant width and perfectly aligned */
+  .league-item, .summary-item{display:grid;grid-template-columns:1fr 180px 22px;gap:10px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:10px;background:#0e1734;cursor:pointer; position:relative}
   .league-item.active, .summary-item.active{outline:2px solid var(--accent)}
-  .li-info{display:flex;flex-direction:column;min-width:0}
-  .li-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .li-info{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .li-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .li-sub{font-size:12px;color:#8fa1ff99;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
 
   .sidebar-connect{ text-align:center; margin:16px auto 6px; font-size:13px }
@@ -146,17 +149,43 @@
   .bench .bench-item .bench-left{display:flex;flex-direction:column;align-items:center}
   .bench .bench-item .player-meta{margin-top:4px;text-align:center}
   /* league dot indicator in sidebar — three-dot horizontal "traffic" indicator (red/yellow/green) */
-  .league-dot{display:inline-flex;gap:6px;align-items:center;margin-left:8px}
-  .league-dot .ldot{width:10px;height:10px;border-radius:999px;border:1px solid rgba(255,255,255,0.06);background:transparent;opacity:0.18}
-  .league-dot .ldot.red-active{background:#ff6b6b;opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,0.22)}
-  .league-dot .ldot.yellow-active{background:#ffd166;opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,0.12)}
-  .league-dot .ldot.green-active{background:#84ffb5;opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,0.12)}
-  .bench-dot{display:inline-block;width:10px;height:10px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .league-dot{display:inline-flex;flex-direction:column;gap:4px;align-items:center;margin-left:6px}
+  .league-dot .ldot{width:8px;height:8px;border-radius:999px;border:1px solid rgba(255,255,255,0.06);background:transparent;opacity:0.18;box-shadow:none}
+  .league-dot .ldot.red-active{background:#ff6b6b;opacity:1;box-shadow:0 0 0 1px rgba(0,0,0,0.18)}
+  .league-dot .ldot.yellow-active{background:#ffd166;opacity:1;box-shadow:0 0 0 1px rgba(0,0,0,0.10)}
+  .league-dot .ldot.green-active{background:#84ffb5;opacity:1;box-shadow:0 0 0 1px rgba(0,0,0,0.10)}
+  .bench-dot{display:inline-block;width:8px;height:8px;border-radius:999px;margin-left:6px;vertical-align:middle}
   .bench-dot.dot-yellow{background:#ffd166}
-  .starter-dot{display:inline-block;width:12px;height:12px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .starter-dot{display:inline-block;width:10px;height:10px;border-radius:999px;margin-left:6px;vertical-align:middle}
   .starter-dot.dot-yellow{background:#ffd166}
   .starter-dot.dot-red{background:#ff6b6b}
   .center-box{background:linear-gradient(180deg,#061124,#08162a);padding:12px;border-radius:10px;border:1px solid var(--border);text-align:center;min-width:180px}
+  /* compact mini-score (opponent | vs | mine) */
+  /* fixed 3-column layout for aligned mini-scores: [mine] [vs] [opponent] */
+  /* two-row mini-score: top row = boxed scores, bottom row = projections */
+  .mini-score{display:flex;flex-direction:column;gap:4px;font-size:12px;width:180px;justify-content:center}
+  .mini-score .mini-row{display:grid;grid-template-columns:64px 28px 64px;align-items:center;gap:8px;height:44px}
+  .mini-score .mini-proj-row{display:grid;grid-template-columns:64px 28px 64px;align-items:center;gap:8px}
+  .mini-score .mini-side{display:flex;flex-direction:column;align-items:center;width:64px;min-width:64px}
+  /* center the boxes in their grid cell; horizontal alignment handled inside the box */
+  .mini-score .mini-side.mini-left{align-items:center}
+  .mini-score .mini-side.mini-right{align-items:center}
+  .mini-score .mini-box{border-radius:4px;padding:4px 6px;min-width:52px;width:52px;height:36px;box-sizing:border-box;text-align:center;display:flex;align-items:center;justify-content:center;border:1px solid transparent;transition:box-shadow .12s,border-color .12s}
+  /* mini-score boxes */
+  .mini-score .mini-vs{width:28px;text-align:center;color:var(--muted);font-size:11px;align-self:center}
+  /* ensure numbers align vertically by using tabular numerals */
+  .mini-score .mini-cur{font-variant-numeric:tabular-nums;font-feature-settings:'tnum';min-width:44px;display:block;text-align:center;width:100%}
+  .mini-score .mini-op{background:#111;color:#fff;border:1px solid #222;}
+  .mini-score .mini-cur{font-weight:700;font-size:13px}
+  .mini-score .mini-proj{font-style:italic;font-size:11px;opacity:.9;height:14px;line-height:14px;overflow:hidden;text-align:center}
+  /* center projected values under their respective boxes */
+  .mini-score .mini-proj-left{padding-right:0;text-align:center;width:100%}
+  .mini-score .mini-proj-right{padding-left:0;text-align:center;width:100%}
+  .mini-score .mini-proj-spacer{width:28px}
+  .mini-score .mini-cur{line-height:1}
+  .mini-score .mini-my.win{border:2px dashed #2b8f5a;box-shadow:0 0 0 4px rgba(43,143,90,0.04)}
+  .mini-score .mini-my.lose{border:2px dashed #a23b3b;box-shadow:0 0 0 4px rgba(162,59,59,0.035)}
+  .mini-score .mini-op{border-color:rgba(255,255,255,0.04)}
   .center-scores{display:flex;align-items:center;justify-content:center;gap:20px}
   .center-left.big,.center-right.big{font-size:28px;font-weight:900}
   .center-proj{font-size:12px;color:var(--muted);font-style:italic;margin-top:6px}
@@ -171,12 +200,26 @@
   .scorebox-small .sb-teams{justify-content:center;gap:24px}
   .scorebox-small .sb-teams .sb-left, .scorebox-small .sb-teams .sb-right{min-width:140px;text-align:center}
 
+  /* Make the team name blocks center-aligned both horizontally and vertically above their sides */
+  .scorebox-small .sb-teams .sb-left, .scorebox-small .sb-teams .sb-right{display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+  /* New compact layout: side blocks with name above and score aligned vertically centered */
+  .scorebox-small .sb-row{display:flex;align-items:center;justify-content:center;gap:24px}
+  /* Show name and score side-by-side and vertically center them */
+  .scorebox-small .sb-side{min-width:140px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px}
+  .scorebox-small .sb-name{font-weight:700;font-size:13px;margin:0}
+  .scorebox-small .sb-side-score{font-weight:900;font-size:18px;line-height:1}
+  .scorebox-small .sb-vs{font-size:12px;color:var(--muted);font-weight:700}
+
   /* Matchup table layout */
   .matchup-table{width:100%;border-collapse:collapse;margin-top:6px}
   .matchup-table th, .matchup-table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px}
   .matchup-table th{background:#08162a;color:#b8c6ff;text-align:left}
   .matchup-table thead th:first-child, .matchup-table thead th:last-child { width: 40%; }
   .matchup-table thead th:first-child, .matchup-table thead th:last-child { background: transparent; border-bottom: none; }
+
+  /* center header team name cells vertically and horizontally */
+  .matchup-table thead th:first-child, .matchup-table thead th:last-child { display:flex; align-items:center; justify-content:center; flex-direction:column; }
   .matchup-table tr.bench td{opacity:0.5;color:var(--muted)}
   .bench-title{padding:8px 10px;background:transparent;font-weight:700;color:var(--muted)}
   .matchup-table td:first-child, .matchup-table td:last-child{width:40%}
@@ -184,8 +227,26 @@
   /* per-player score box (current above, projected below) */
   .player-score-box{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 8px;border-radius:8px;background:linear-gradient(180deg,#061124,#07162a);border:1px solid var(--border);min-width:72px}
   .player-score-box .ps-current{font-weight:900;font-size:14px}
-  .player-score-box .ps-proj{font-size:12px;color:var(--muted)}
+  .player-score-box .ps-proj{font-size:10px;color:var(--muted)}
+  .player-score-box .ps-preproj{font-size:9px;color:#9fb0d9;opacity:0.9;margin-top:2px}
+  /* current display states */
+  .player-score-box .ps-current.unplayed{color:var(--muted);font-weight:700}
+  .player-score-box .ps-current.played{color:var(--text);font-weight:900}
+  /* projected display colored italics when actual has started */
+  .player-score-box .ps-proj.italic{font-style:italic}
+  .player-score-box .ps-proj.proj-green{color:#84ffb5}
+  .player-score-box .ps-proj.proj-yellow{color:#ffd166}
+  .player-score-box .ps-proj.proj-red{color:#ff6b6b}
   @media (max-width:720px){ .scorebox-small .sb-scores{font-size:16px} .scorebox-small .sb-teams{font-size:12px} .matchup-table th, .matchup-table td{font-size:12px;padding:6px} }
+
+  /* legend under league list */
+  .league-legend{margin-top:10px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.03);display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+  .league-legend .legend-item{display:flex;align-items:center;gap:8px}
+  .league-legend .legend-item .ldot{width:12px;height:12px;border-radius:999px;display:inline-block;border:1px solid rgba(255,255,255,0.06);background:transparent}
+  .league-legend .legend-item .ldot.red-active{background:#ff6b6b}
+  .league-legend .legend-item .ldot.yellow-active{background:#ffd166}
+  .league-legend .legend-item .ldot.green-active{background:#84ffb5}
+  .league-legend .legend-text{color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -261,6 +322,11 @@
 
     <div class="nav-head">Your Leagues</div>
     <div id="leagueList" class="league-list"></div>
+    <div class="league-legend" aria-hidden="true">
+      <div class="legend-item"><span class="ldot red-active" aria-hidden="true"></span><span class="legend-text">Red: starter missing or projected 0</span></div>
+      <div class="legend-item"><span class="ldot yellow-active" aria-hidden="true"></span><span class="legend-text">Yellow: bench can outscore a starter</span></div>
+      <div class="legend-item"><span class="ldot green-active" aria-hidden="true"></span><span class="legend-text">Green: no alerts</span></div>
+    </div>
 
     <div class="sidebar-connect">
       <a href="https://www.linkedin.com/in/aryan-shah/" target="_blank" rel="noopener">Connect with the Creator</a>
@@ -352,6 +418,10 @@
   </div>
 </div>
 
-<script src="app.js?v=1" defer></script>
+<script src="src/utils.js?v=2" defer></script>
+<script src="src/api.js?v=2" defer></script>
+<script src="src/projections.js?v=2" defer></script>
+<script src="src/rosters.js?v=2" defer></script>
+<script src="app.js?v=2" defer></script>
 </body>
 </html>

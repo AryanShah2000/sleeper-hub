@@ -29,71 +29,18 @@ const STATIC_SCHEDULE = {
 if(!STATIC_SCHEDULE['2025']) STATIC_SCHEDULE['2025'] = {};
 for(let w=1; w<=18; w++){ const wk=String(w); if(!STATIC_SCHEDULE['2025'][wk]) STATIC_SCHEDULE['2025'][wk] = STATIC_SCHEDULE['2025']['1']; }
 
-// Team abbreviation normalization map (maps variants to standard codes used in g.players)
-const TEAM_ABBREV_NORMALIZE = {
-  'JAC':'JAX','JAC.':'JAX','WAS':'WAS','WSH':'WAS','LAR':'LAR','LA':'LAR','STL':'LAR','SF':'SF','SFO':'SF',
-  'KC':'KC','KAN':'KC','NE':'NE','NWE':'NE','NYG':'NYG','NYJ':'NYJ','NYJ':'NYJ','GB':'GB','GNB':'GB',
-  'TB':'TB','TBB':'TB','NO':'NO','NOR':'NO','DAL':'DAL','DAL.':'DAL','PHI':'PHI','PHI.':'PHI',
-  'BUF':'BUF','BUF.':'BUF','CIN':'CIN','CIN.':'CIN','BAL':'BAL','BAL.':'BAL','PIT':'PIT','PIT.':'PIT',
-  'CLE':'CLE','CLE.':'CLE','HOU':'HOU','HOU.':'HOU','IND':'IND','IND.':'IND','TEN':'TEN','TEN.':'TEN',
-  'JAX':'JAX','MIA':'MIA','MIA.':'MIA','CAR':'CAR','CAR.':'CAR','LAC':'LAC','LAC.':'LAC','DEN':'DEN','DEN.':'DEN',
-  'DET':'DET','DET.':'DET','ATL':'ATL','ATL.':'ATL','CHI':'CHI','CHI.':'CHI','LV':'LV','LVR':'LV','ARI':'ARI','ARI.':'ARI','SEA':'SEA','SEA.':'SEA'
-};
-function normalizeTeam(abbr){ if(!abbr) return abbr; const a = String(abbr).toUpperCase(); return TEAM_ABBREV_NORMALIZE[a] || a; }
-
-// ===== Tiny DOM helpers + cache =====
-const $ = (s) => document.querySelector(s);
-const el = (tag, attrs = {}, kids = []) => {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') n.className = v;
-    else if (k === 'html') n.innerHTML = v;
-    else n.setAttribute(k, v);
-  }
-  (Array.isArray(kids) ? kids : [kids]).filter(Boolean).forEach((k) => n.append(k));
-  return n;
-};
-
-// Small HTML escaper for safe insertion into innerHTML when needed
-function escapeHtml(s){
-  if(s === null || s === undefined) return '';
-  return String(s)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
-}
-
-let statusHideTimer = null;
-const TTL = 3 * 3600 * 1000;
-const ck = (u) => 'cache:' + u;
-async function fetchJSON(url) {
-  const now = Date.now();
-  try {
-    const c = localStorage.getItem(ck(url));
-    if (c) {
-      const { ts, data } = JSON.parse(c);
-      if (now - ts < TTL) return data;
-    }
-  } catch {}
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${r.status} for ${url}`);
-  const data = await r.json();
-  try { localStorage.setItem(ck(url), JSON.stringify({ ts: now, data })); } catch {}
-  return data;
-}
-
-function status(kind, msg) {
-  const s = $('#status'); if (!s) return;
-  if (statusHideTimer) clearTimeout(statusHideTimer);
-  s.className = 'status ' + (kind || '');
-  s.innerHTML = msg;
-  s.classList.remove('hidden');
-  if (kind === 'ok') {
-    statusHideTimer = setTimeout(() => { s.classList.add('hidden'); }, 3000);
-  }
-}
+// Import helpers provided by `src/utils.js` and API helpers from `src/api.js`.
+const { normalizeTeam, $, el, escapeHtml, status, TTL, ck, parseBD, ageFrom, age } = window.__sha_utils || {};
+// fetchJSON and other API helpers come from src/api.js via window.__sha_api or globals set by that module
+const { fetchJSON: _apiFetchJSON, resolveUserId: _resolveUserId, loadMyLeagues: _loadMyLeagues, loadLeagueBundle: _loadLeagueBundle, loadPlayersMap: _loadPlayersMap } = window.__sha_api || {};
+// Provide fallbacks to the global names (app.js references fetchJSON, resolveUserId, etc. directly)
+try{
+  window.fetchJSON = window.fetchJSON || _apiFetchJSON;
+  window.resolveUserId = window.resolveUserId || _resolveUserId;
+  window.loadMyLeagues = window.loadMyLeagues || _loadMyLeagues;
+  window.loadLeagueBundle = window.loadLeagueBundle || _loadLeagueBundle;
+  window.loadPlayersMap = window.loadPlayersMap || _loadPlayersMap;
+}catch(e){}
 
 // ===== Sleeper fetches =====
 async function resolveUserId(usernameOrId) {
@@ -125,9 +72,9 @@ function feedPPR(it) {
   for (const k of ks) if (s?.[k] != null) return +s[k] || 0;
   return 0;
 }
-async function providerRows(season, week, season_type) {
+async function providerRows(season, week, season_type, opts = {}) {
   const url = `https://api.sleeper.app/projections/nfl/${season}/${week}?season_type=${season_type}&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF&order_by=ppr`;
-  const raw = await fetchJSON(url);
+  const raw = await fetchJSON(url, opts);
   const rows = {};
   if (Array.isArray(raw)) {
     for (const it of raw) {
@@ -162,11 +109,56 @@ function rescored(pid, rowsByPid, players, scoring) {
   if (pos === 'TE') pts += rec*(sc.bonus_rec_te||0);
   return +pts.toFixed(2);
 }
-async function projByPid(season, week, season_type, players, scoring) {
-  const rows = await providerRows(season, week, season_type);
+async function projByPid(season, week, season_type, players, scoring, opts = {}) {
+  const rows = await providerRows(season, week, season_type, opts);
+  // If running from file:// the browser environment can block or interfere with
+  // CORS requests to third-party APIs. Provide a visible warning to the user so
+  // they can try serving the app via a local webserver (e.g. python -m http.server).
+  try{
+      if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') {
+      status('err','Running from file:// may block projection fetches; serve the app via a local webserver (e.g. `python -m http.server`) and reload.');
+    }
+  }catch(e){}
+    if (!rows || Object.keys(rows).length === 0) {
+    try{ status('err', `Projections fetch returned no rows for ${season} W${week}. This may be a CORS/provider issue or a temporary outage.`); }catch(e){}
+  }
   const out = {};
   Object.keys(rows).forEach((pid) => (out[pid] = rescored(pid, rows, players, scoring)));
   return out;
+}
+
+// Debug helper: show provider rows + rescored values + final proj used by app
+async function showProjectionDebug(leagueId){
+  try{
+    const entry = g.leagues[leagueId]; if(!entry) { status('err','League not in memory for debug'); return; }
+    const { league } = entry; const season = +league.season; const week = +($('#weekSelect').value||1);
+    status('', `Fetching provider rows for ${league.name} W${week}…`);
+    const rows = await providerRows(season, week, 'regular');
+    const proj = await projByPid(season, week, 'regular', g.players, league.scoring_settings||{});
+
+    // Build table rows: [Name, PID, Company, feedPPR, rescored, finalProj]
+    const tableRows = Object.keys(rows).map(pid=>{
+      const r = rows[pid] || {};
+      const pmeta = g.players && g.players[pid] ? g.players[pid] : {};
+      const name = pmeta.full_name || (pmeta.first_name && pmeta.last_name ? `${pmeta.first_name} ${pmeta.last_name}` : (pmeta.last_name||pid));
+      const feed = (typeof feedPPR === 'function') ? feedPPR(r) : (r?.ppr||0);
+      const resc = rescored(pid, rows, g.players, league.scoring_settings||{});
+      const finalProj = proj[String(pid)] || 0;
+      return [ name, pid, (r.company||''), (Number.isFinite(feed)?feed.toFixed(2):String(feed)), resc.toFixed(2), finalProj.toFixed(2) ];
+    }).sort((a,b)=>parseFloat(b[5]) - parseFloat(a[5]));
+
+    // Create modal
+    const modal = el('div',{class:'__proj-debug-modal'});
+    modal.style.position='fixed'; modal.style.left='8px'; modal.style.right='8px'; modal.style.top='8px'; modal.style.bottom='8px'; modal.style.background='#021124'; modal.style.color='#fff'; modal.style.zIndex=99999; modal.style.overflow='auto'; modal.style.padding='12px'; modal.style.border='1px solid rgba(255,255,255,0.06)'; modal.style.borderRadius='8px';
+    const hdr = el('div',{html:`<b>Projection debug — ${league.name} Week ${week}</b>`}); hdr.style.marginBottom='8px';
+    const close = el('button',{html:'Close', class:'small'}); close.style.marginLeft='12px'; close.onclick = ()=> modal.remove();
+    const info = el('div',{html:`Provider rows: ${Object.keys(rows).length} • Rescored entries: ${Object.keys(proj).length}`}); info.style.margin='8px 0 12px 0';
+    const tableWrap = el('div');
+    renderSortableTable(tableWrap, ['Player','PID','Company','feedPPR','rescored','finalProj'], tableRows, ['str','str','str','num','num','num']);
+    modal.append(hdr, close, info, tableWrap);
+    document.body.append(modal);
+    status('ok','Projection debug ready (modal opened)');
+  }catch(e){ console.error('showProjectionDebug failed', e); status('err','Projection debug failed (see console)'); }
 }
 
 // ===== Helpers: rosters/ages/byes/record =====
@@ -209,9 +201,7 @@ function teamPosValues(league, rows) {
   return values;
 }
 function rankPct(vals, mine){ const sv=[...vals].sort((a,b)=>b-a); const rank=sv.indexOf(mine)+1; const n=sv.length; const below=sv.filter(v=>v<mine).length; return {rank, out_of:n, pct:Math.round(1000*below/n)/10}; }
-function parseBD(meta){ for (const k of ['birth_date','birthdate','birthDate']){ const raw=meta?.[k]; if(!raw) continue; const d=new Date(String(raw).slice(0,10)); if(!isNaN(d)) return d; } return null; }
-function ageFrom(d){ const now=new Date(); let a=now.getFullYear()-d.getFullYear(); const m=now.getMonth()-d.getMonth(); if(m<0||(m===0&&now.getDate()<d.getDate())) a--; return a; }
-function age(meta){ if (meta?.age!=null){ const n=+meta.age; if (Number.isFinite(n)&&n>0) return Math.floor(n);} const bd=parseBD(meta); return bd?ageFrom(bd):null; }
+// date/age helpers provided by src/utils.js (available via window.__sha_utils)
 const BYE_2025={ATL:5,CHI:5,GB:5,PIT:5,HOU:6,MIN:6,BAL:7,BUF:7,ARI:8,DET:8,JAX:8,LV:8,LAR:8,SEA:8,CLE:9,NYJ:9,PHI:9,TB:9,CIN:10,DAL:10,KC:10,TEN:10,IND:11,NO:11,DEN:12,LAC:12,MIA:12,WAS:12,CAR:14,NE:14,NYG:14,SF:14};
 function teamBye(team, season){ return season==2025 ? BYE_2025[team] : null; }
 function rosterRecord(roster){
@@ -290,23 +280,44 @@ function renderMatchup(sumDiv, myDiv, oppDiv, p){
   const leftCur = (Number(p.me.current_total)||0).toFixed(2);
   const rightCur = (Number(p.opponent.current_total)||0).toFixed(2);
 
-  // compact scoreboard at top (smaller)
-  const scoreBox = el('div',{class:'scorebox-small'},[
-    el('div',{class:'sb-teams'}, [ el('div',{class:'sb-left', html:leftName}), el('div',{class:'sb-spacer', html:' ' }), el('div',{class:'sb-right', html:rightName}) ]),
-    el('div',{class:'sb-scores'}, [ el('div',{class:'sb-left-score', html:leftCur}), el('div',{class:'sb-vs', html:'vs'}), el('div',{class:'sb-right-score', html:rightCur}) ]),
-    el('div',{class:'sb-proj', html:`<em>Projected: ${leftProj} — ${rightProj}</em>`})
-  ]);
+  // compact scoreboard at top: render each side as name + score aligned vertically and centered
+  // show projected totals only if both teams have no current scoring yet
+  const showProjLine = (Number(p.me.current_total) === 0 && Number(p.opponent.current_total) === 0);
+  const leftSide = el('div',{class:'sb-side sb-left-side'}, [ el('div',{class:'sb-name', html:leftName}), el('div',{class:'sb-side-score', html:leftCur}) ]);
+  const rightSide = el('div',{class:'sb-side sb-right-side'}, [ el('div',{class:'sb-name', html:rightName}), el('div',{class:'sb-side-score', html:rightCur}) ]);
+  const center = el('div',{class:'sb-vs', html:'vs'});
+  const scoreRow = el('div',{class:'sb-row'}, [ leftSide, center, rightSide ]);
+  const scoreBoxChildren = [ scoreRow ];
+  if (showProjLine) scoreBoxChildren.push(el('div',{class:'sb-proj', html:`<em>Projected: ${leftProj} — ${rightProj}</em>`}));
+  const scoreBox = el('div',{class:'scorebox-small'}, scoreBoxChildren);
   sumDiv.append(scoreBox);
 
   // Build matchup table: use the starter order from Sleeper (array order)
-  const tbl = document.createElement('table'); tbl.className='matchup-table';
-  const thead = el('thead'); thead.append(el('tr',{}, [ el('th',{html:''}), el('th',{html:'Proj'}), el('th',{html:'Proj'}), el('th',{html:''}) ]));
-  tbl.append(thead);
+    const tbl = document.createElement('table'); tbl.className='matchup-table';
+  const thead = el('thead'); thead.append(el('tr',{}, [ el('th',{html:''}), el('th',{html:''}), el('th',{html:''}), el('th',{html:''}) ]));
+    tbl.append(thead);
   const tbody = el('tbody');
 
   const leftList = p.myStart || [];
   const rightList = p.oppStart || [];
   const maxLen = Math.max(leftList.length, rightList.length);
+  // helper to build score box with classes based on played state
+  const buildScoreBox = (cur, proj) => {
+    // Always show 0.00 in the current box even when no current value is present,
+    // but keep the 'unplayed' class so it appears grey until the player actually plays.
+    const curTxt = (cur === null || cur === undefined) ? '0.00' : (Number.isFinite(Number(cur)) ? Number(cur).toFixed(2) : '0.00');
+    // sanitize projected value to avoid showing "NaN"
+    const safeProj = (proj === null || proj === undefined || !Number.isFinite(Number(proj))) ? null : Number(proj);
+    // treat null/undefined as "unplayed"; only show projection when player hasn't played
+    const curClass = (cur === null || cur === undefined) ? 'ps-current unplayed' : 'ps-current played';
+    const children = [ el('div',{class:curClass, html: curTxt}) ];
+    // show projection only if player hasn't played yet
+    if (cur === null || cur === undefined) {
+      const projTxt = safeProj === null ? '' : safeProj.toFixed(2);
+      children.push(el('div',{class:'ps-proj', html: projTxt}));
+    }
+    return el('div',{class:'player-score-box'}, children);
+  };
   // Precompute starter proj arrays by position and map pid->starter minimal proj for lookups
   const leftStartersByPos = {};
   const rightStartersByPos = {};
@@ -348,12 +359,12 @@ function renderMatchup(sumDiv, myDiv, oppDiv, p){
   if (Ryellow) dotsR += `<span class="starter-dot dot-yellow" title="Bench projects to outscore this starter"></span>`;
   rightCell.append(el('div',{}, [ el('div',{class:'player-name', html: escapeHtml(R.name) + dotsR}), el('div',{class:'player-meta', html: `${R.pos} • ${R.team}`}) ]));
     }
-    const lcur = L ? (Number(L.current||0).toFixed(2)) : '';
-    const rcur = R ? (Number(R.current||0).toFixed(2)) : '';
-    const lproj = L ? (Number(L.proj||0).toFixed(2)) : '';
-    const rproj = R ? (Number(R.proj||0).toFixed(2)) : '';
-    const leftScoreTd = el('td'); leftScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: lcur}), el('div',{class:'ps-proj', html: lproj}) ]));
-    const rightScoreTd = el('td'); rightScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: rcur}), el('div',{class:'ps-proj', html: rproj}) ]));
+  const lcur = L ? ((L.current === null || L.current === undefined) ? null : Number(L.current)) : null;
+  const rcur = R ? ((R.current === null || R.current === undefined) ? null : Number(R.current)) : null;
+  const lproj = L ? ((L.proj === null || L.proj === undefined) ? null : Number(L.proj)) : null;
+  const rproj = R ? ((R.proj === null || R.proj === undefined) ? null : Number(R.proj)) : null;
+    const leftScoreTd = el('td'); leftScoreTd.append(buildScoreBox(lcur, lproj, L ? L.preproj : null));
+      const rightScoreTd = el('td'); rightScoreTd.append(buildScoreBox(rcur, rproj, R ? R.preproj : null));
     const tr = el('tr',{}, [ leftCell, leftScoreTd, rightScoreTd, rightCell ]);
     tbody.append(tr);
   }
@@ -390,12 +401,12 @@ function renderMatchup(sumDiv, myDiv, oppDiv, p){
         const nameHtml = escapeHtml(R.name) + (showDot? ' <span class="bench-dot dot-yellow" title="Bench projects to outscore starter"></span>' : '');
         rightCell.append(el('div',{}, [ el('div',{class:'player-name', html: nameHtml}), el('div',{class:'player-meta', html: `${R.pos} • ${R.team}`}) ]));
       }
-      const lcur = L ? (Number(L.current||0).toFixed(2)) : '';
-      const rcur = R ? (Number(R.current||0).toFixed(2)) : '';
-      const lproj = L ? (Number(L.proj||0).toFixed(2)) : '';
-      const rproj = R ? (Number(R.proj||0).toFixed(2)) : '';
-      const leftScoreTd = el('td'); leftScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: lcur}), el('div',{class:'ps-proj', html: lproj}) ]));
-      const rightScoreTd = el('td'); rightScoreTd.append(el('div',{class:'player-score-box'}, [ el('div',{class:'ps-current', html: rcur}), el('div',{class:'ps-proj', html: rproj}) ]));
+  const lcur = L ? ((L.current === null || L.current === undefined) ? null : Number(L.current)) : null;
+  const rcur = R ? ((R.current === null || R.current === undefined) ? null : Number(R.current)) : null;
+  const lproj = L ? ((L.proj === null || L.proj === undefined) ? null : Number(L.proj)) : null;
+  const rproj = R ? ((R.proj === null || R.proj === undefined) ? null : Number(R.proj)) : null;
+  const leftScoreTd = el('td'); leftScoreTd.append(buildScoreBox(lcur, lproj, L ? L.preproj : null));
+  const rightScoreTd = el('td'); rightScoreTd.append(buildScoreBox(rcur, rproj, R ? R.preproj : null));
       const tr = el('tr',{}, [ leftCell, leftScoreTd, rightScoreTd, rightCell ]);
       tr.classList.add('bench'); tbody.append(tr);
     }
@@ -404,7 +415,7 @@ function renderMatchup(sumDiv, myDiv, oppDiv, p){
   tbl.append(tbody);
   sumDiv.append(tbl);
 }
-async function matchupPreview(leagueId, week, league, users, rosters, players, projFn, myRid, myTeam){
+async function matchupPreview(leagueId, week, league, users, rosters, players, projFn, myRid, myTeam, preMap){
   let matchups=[]; try{ matchups = await fetchJSON(`https://api.sleeper.app/v1/league/${leagueId}/matchups/${week}`);}catch{}
   const byRid = new Map(matchups.filter(m=>m&&typeof m==='object').map(m=>[m.roster_id,m]));
   const myM = byRid.get(myRid);
@@ -417,14 +428,27 @@ async function matchupPreview(leagueId, week, league, users, rosters, players, p
     const m = players[pid]||{};
     const name = m.full_name || (m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.last_name || 'Unknown'));
     const mm = byRid.get(rid) || {};
-    let cur = 0;
-    if (mm?.players_points && mm.players_points[pid] != null) cur = Number(mm.players_points[pid]) || 0;
-    else if (mm?.player_points && mm.player_points[pid] != null) cur = Number(mm.player_points[pid]) || 0;
-    else if (mm?.points && typeof mm.points === 'object' && mm.points[pid] != null) cur = Number(mm.points[pid]) || 0;
-    return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0, current: cur };
+  // Distinguish between "didn't play" (null) and "played and scored 0" (0).
+  // Only accept a 0 as "played" when there is per-player stats evidence.
+  const scoreSources = ['players_points','player_points','points'];
+  const statsKeys = ['player_stats','players_stats','stats','player_game_stats'];
+  const mmHasScoring = scoreSources.some(k => mm?.[k] && Object.values(mm[k]).some(v => v != null && Number(v) !== 0));
+  const pidHasStats = (pid)=> statsKeys.some(k => mm?.[k] && mm[k][pid] && Object.values(mm[k][pid]).some(v => v != null && Number(v) !== 0));
+  let cur = null;
+  for (const k of scoreSources){
+    if (mm?.[k] && mm[k][pid] != null){
+      const val = Number(mm[k][pid]);
+      // If val is 0, require per-player stats to consider it a played value.
+      if (val === 0){ cur = pidHasStats(pid) ? 0 : null; }
+      else { cur = val; }
+      break;
+    }
+  }
+  const preproj = preMap && preMap[String(pid)] != null ? (+preMap[String(pid)]||0) : null;
+  return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0, preproj, current: cur };
   });
   const bench = (rid)=>{ const m=byRid.get(rid)||{}; const r=rosterById[rid]||{}; const all = (m.players||r.players||[]).filter(pid=>pid!=='0'); const s = new Set(starters(rid)); return all.filter(pid=>!s.has(pid)); };
-  const benchProj = (rid)=> bench(rid).map(pid=>{ const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); const mm = byRid.get(rid)||{}; let cur = 0; if(mm?.players_points && mm.players_points[pid] != null) cur = Number(mm.players_points[pid])||0; else if(mm?.player_points && mm.player_points[pid] != null) cur = Number(mm.player_points[pid])||0; else if(mm?.points && typeof mm.points === 'object' && mm.points[pid] != null) cur = Number(mm.points[pid])||0; return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0, current: cur }; });
+  const benchProj = (rid)=> bench(rid).map(pid=>{ const m=players[pid]||{}; const name=m.full_name||(m.first_name&&m.last_name?`${m.first_name} ${m.last_name}`:(m.last_name||'Unknown')); const mm = byRid.get(rid)||{}; const scoreSources = ['players_points','player_points','points']; const statsKeys = ['player_stats','players_stats','stats','player_game_stats']; const pidHasStats = (pid)=> statsKeys.some(k => mm?.[k] && mm[k][pid] && Object.values(mm[k][pid]).some(v => v != null && Number(v) !== 0)); let cur = null; for (const k of scoreSources){ if (mm?.[k] && mm[k][pid] != null){ const val = Number(mm[k][pid]); if (val === 0){ cur = pidHasStats(pid) ? 0 : null; } else { cur = val; } break; } } const preproj = preMap && preMap[String(pid)] != null ? (+preMap[String(pid)]||0) : null; return { pid, name, pos:(m.position||'UNK').toUpperCase(), team:m.team||'FA', proj:+projFn(pid)||0, preproj, current: cur }; });
   let oppRid = null; if (myM){ const mid=myM.matchup_id; const opp = matchups.find(m=>m.matchup_id===mid && m.roster_id!==myRid); oppRid = opp?.roster_id ?? null; }
   const myStart = startersProj(myRid); const oppStart = oppRid ? startersProj(oppRid) : [];
   const myBench = benchProj(myRid);
@@ -432,10 +456,17 @@ async function matchupPreview(leagueId, week, league, users, rosters, players, p
   const getPoints = (rid)=>{ const m=byRid.get(rid)||{}; return Number(m?.points ?? m?.points_total ?? m?.team_points ?? m?.score ?? m?.total ?? 0) || 0; };
   const myCurrent = getPoints(myRid);
   const oppCurrent = getPoints(oppRid);
+  // prefer actual current_total when matchup appears complete: either many starters have current values
+  const myProjSum = myStart.reduce((s,p)=>s + (Number.isFinite(Number(p.proj)) ? Number(p.proj) : 0), 0);
+  const oppProjSum = oppStart.reduce((s,p)=>s + (Number.isFinite(Number(p.proj)) ? Number(p.proj) : 0), 0);
+  const myAllStartersPlayed = myStart.length>0 && myStart.every(p => p.current !== null && p.current !== undefined);
+  const oppAllStartersPlayed = oppStart.length>0 && oppStart.every(p => p.current !== null && p.current !== undefined);
+  const meProjected = (myAllStartersPlayed || (myCurrent && myCurrent > 0)) ? myCurrent : myProjSum;
+  const oppProjected = (oppAllStartersPlayed || (oppCurrent && oppCurrent > 0)) ? oppCurrent : oppProjSum;
   return {
     week,
-    me: { team_name: myTeam, projected_total: +myStart.reduce((s,p)=>s+p.proj,0).toFixed(2), current_total: myCurrent },
-    opponent: { team_name: teamName(oppRid), projected_total: +oppStart.reduce((s,p)=>s+p.proj,0).toFixed(2), current_total: oppCurrent },
+    me: { team_name: myTeam, projected_total: +Number(meProjected || 0).toFixed(2), current_total: myCurrent },
+    opponent: { team_name: teamName(oppRid), projected_total: +Number(oppProjected || 0).toFixed(2), current_total: oppCurrent },
     myStart, oppStart, myBench, oppBench
   };
 }
@@ -845,17 +876,20 @@ async function renderUserMatchups(week, season){
       const myRoster = rosters.find(r=>r.owner_id===g.userId) || rosters[0];
       const myUser = users.find(u=>u.user_id===myRoster.owner_id) || {};
       const myTeamName = myUser.metadata?.team_name || myUser.display_name || `Team ${myRoster.roster_id}`;
-      const proj = await projByPid(+league.season, week, 'regular', g.players, league.scoring_settings||{});
-      const projFn = pid => proj[String(pid)]||0;
-      const prev = await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+  const proj = await projByPid(+league.season, week, 'regular', g.players, league.scoring_settings||{});
+  const projFn = pid => proj[String(pid)]||0;
+  const preMap = entry.__preProj || null;
+  const prev = await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName, preMap);
   // cache the preview so sidebar badge logic can reflect its findings without needing DOM inspection
   try{ g.leagues[league.league_id] = g.leagues[league.league_id] || {}; g.leagues[league.league_id].__lastPreview = prev; }catch(e){}
       // short league name: drop year if present at end
       const shortLeague = (league.name||'League').replace(/\s+\b(20\d{2})\b$/,'').trim();
-      const leftScore = Number(prev.me.projected_total).toFixed(2);
-      const rightScore = Number(prev.opponent.projected_total).toFixed(2);
-      const myWins = Number(prev.me.projected_total) > Number(prev.opponent.projected_total);
-      const myScoreClass = myWins ? 'mc-score win' : (Number(prev.me.projected_total) < Number(prev.opponent.projected_total) ? 'mc-score lose' : 'mc-score');
+  const leftScoreVal = (Number(prev.me.current_total) !== 0) ? Number(prev.me.current_total) : Number(prev.me.projected_total || 0);
+  const rightScoreVal = (Number(prev.opponent.current_total) !== 0) ? Number(prev.opponent.current_total) : Number(prev.opponent.projected_total || 0);
+  const leftScore = Number(leftScoreVal).toFixed(2);
+  const rightScore = Number(rightScoreVal).toFixed(2);
+  const myWins = leftScoreVal > rightScoreVal;
+  const myScoreClass = myWins ? 'mc-score win' : (leftScoreVal < rightScoreVal ? 'mc-score lose' : 'mc-score');
   const card = el('div',{class:'matchup-card','data-league-id': league.league_id},[
         el('div',{class:'mc-head', html: shortLeague}),
         el('div',{class:'mc-body'},[
@@ -913,8 +947,9 @@ async function userSummaryProjections(leagues, players, week){
     const myRoster=rosters.find(r=>r.owner_id===g.userId); if(!myRoster) return;
     const myUser=users.find(u=>u.user_id===myRoster.owner_id)||{};
     const myTeamName=(myUser.metadata?.team_name)||myUser.display_name||`Team ${myRoster.roster_id}`;
-    const proj=await projByPid(season, week, 'regular', players, scoring); const projFn=(pid)=>proj[String(pid)]||0;
-    const prev=await matchupPreview(league.league_id, week, league, users, rosters, players, projFn, myRoster.roster_id, myTeamName);
+  const proj=await projByPid(season, week, 'regular', players, scoring); const projFn=(pid)=>proj[String(pid)]||0;
+  const preMap = entry.__preProj || null;
+  const prev=await matchupPreview(league.league_id, week, league, users, rosters, players, projFn, myRoster.roster_id, myTeamName, preMap);
 
     const me  = +prev.me.projected_total.toFixed(2);
     const opp = +prev.opponent.projected_total.toFixed(2);
@@ -1209,7 +1244,34 @@ function renderLeagueList(active=null){
       el('div',{class:'li-title', html: league?.name || `League ${id}`}),
       el('div',{class:'li-sub',   html: (myTeamName || '') + rec })
     ]);
-  const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[ titleWrapper, dot ]);
+    // compact mini-score using cached preview if available
+    let miniScore = el('div',{class:'mini-score'}, '');
+    try{
+      const cached = g.leagues[id] && g.leagues[id].__lastPreview;
+  if (cached){
+    const myCurNum = Number(cached.me.current_total||0);
+    const oppCurNum = Number(cached.opponent.current_total||0);
+    const myCur = myCurNum.toFixed(2);
+    const oppCur = oppCurNum.toFixed(2);
+    const myProj = Number(cached.me.projected_total||0).toFixed(2);
+    const oppProj = Number(cached.opponent.projected_total||0).toFixed(2);
+    // determine highlighted class using current score if present else projected
+    const myValForWin = myCurNum !== 0 ? myCurNum : Number(cached.me.projected_total||0);
+    const oppValForWin = oppCurNum !== 0 ? oppCurNum : Number(cached.opponent.projected_total||0);
+    const myWin = myValForWin > oppValForWin;
+    const myCls = myWin ? 'mini-my win' : (myValForWin < oppValForWin ? 'mini-my lose' : 'mini-my');
+  // left: my boxed current with proj under the box (proj only shown when both currents are zero), center: vs, right: opponent current with proj under the box
+  const myBoxL = el('div',{class:'mini-box ' + myCls}, [ el('div',{class:'mini-cur', html: myCur}) ]);
+  const leftSide = el('div',{class:'mini-side mini-left'}, [ myBoxL ]);
+  const rightBox = el('div',{class:'mini-box mini-op'}, [ el('div',{class:'mini-cur', html: oppCur}) ]);
+  const rightSide = el('div',{class:'mini-side mini-right'}, [ rightBox ]);
+  const topRow = el('div',{class:'mini-row'}, [ leftSide, el('div',{class:'mini-vs', html:'vs'}), rightSide ]);
+  const showMiniProj = (myCurNum === 0 && oppCurNum === 0);
+  if (showMiniProj) miniScore = el('div',{class:'mini-score'}, [ topRow, el('div',{class:'mini-proj-row'}, [ el('div',{class:'mini-proj-left mini-proj', html: myProj}), el('div',{class:'mini-proj-spacer'}), el('div',{class:'mini-proj-right mini-proj', html: oppProj}) ]) ]);
+  else miniScore = el('div',{class:'mini-score'}, [ topRow ]);
+      }
+    }catch(e){ }
+  const item=el('div',{class:'league-item'+(id===active?' active':''), 'data-id':id},[ titleWrapper, miniScore, dot ]);
     item.addEventListener('click', async ()=>{
       try {
         console.log('League click:', id);
@@ -1240,6 +1302,13 @@ async function renderSelectedLeague(){
     $('#contextNote').textContent = `${league.name} • ${league.season}`;
     $('#posNote').textContent = `Roster slots: ${rosterPositionsSummary(league)}`;
 
+    // Add projection debug button (helpful for troubleshooting mismatched projections)
+    try{
+      let dbg = document.querySelector('#projDebugBtn');
+      if(!dbg){ dbg = el('button',{id:'projDebugBtn', class:'small', html:'Proj debug'}); dbg.style.marginLeft='8px'; $('#contextNote').parentNode.append(dbg); }
+      dbg.onclick = ()=> showProjectionDebug(id);
+    }catch(e){}
+
     // Roster table
     renderRoster($('#rosterTable'), myRoster, g.players, season);
 
@@ -1265,10 +1334,13 @@ async function renderSelectedLeague(){
     }
     renderPos($('#posTable'), posStats, order);
 
-    // Matchup preview
-    const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName);
+  // Matchup preview (use stored pre-week projection map so individual players show their pre-week proj)
+  const preMap = (g.leagues[id] && g.leagues[id].__preProj) ? g.leagues[id].__preProj : null;
+  const prev=await matchupPreview(league.league_id, week, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName, preMap);
   renderMatchup($('#matchupSummary'), $('#myStarters'), $('#oppStarters'), prev);
-  try{ g.leagues[id] = g.leagues[id] || {}; g.leagues[id].__lastPreview = prev; }catch(e){}
+    try{ g.leagues[id] = g.leagues[id] || {}; g.leagues[id].__lastPreview = prev; }catch(e){}
+    // ensure sidebar mini-scores reflect the latest preview immediately
+    try{ renderLeagueList(id); }catch(e){}
 
     // League-specific Bye Matrix (by position groups)
     const byeData = byeMatrixByPosition(myRoster, g.players, season, league);
@@ -1327,6 +1399,24 @@ async function loadForUsername(uname){
     }
     g.leagues = {};
     await Promise.all(leagues.map(async (L)=>{ g.leagues[L.league_id] = await loadLeagueBundle(L.league_id); }));
+    // precompute matchup previews for each league so sidebar mini-scores render immediately
+    const weekNow = +($('#weekSelect').value||1);
+    await Promise.all(Object.values(g.leagues).map(async (entry) => {
+      try{
+        const { league, users, rosters } = entry;
+        const season = +league.season;
+        const myRoster = rosters.find(r=>r.owner_id===g.userId) || rosters[0];
+        const myUser = users.find(u=>u.user_id===myRoster?.owner_id) || {};
+        const myTeamName = myUser.metadata?.team_name || myUser.display_name || `Team ${myRoster?.roster_id}`;
+        const scoring = league.scoring_settings||{};
+  const proj = await projByPid(season, weekNow, 'regular', g.players, scoring);
+  // store the initial pre-week projection map for later per-player preproj display
+  entry.__preProj = Object.assign({}, proj);
+  const projFn = (pid)=>proj[String(pid)]||0;
+  const prev = await matchupPreview(league.league_id, weekNow, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName, entry.__preProj);
+  entry.__lastPreview = prev;
+      }catch(e){ /* ignore per-league failures */ }
+    }));
     setWeekOptions(); showControls();
 
     const sm=$('#summaryItem'); sm.classList.remove('hidden'); sm.classList.add('active');
@@ -1377,24 +1467,49 @@ function wireEvents(){
   const refreshBtn = $('#refreshBtn');
   if(refreshBtn){
     refreshBtn.addEventListener('click', async ()=>{
-      const uname = ($('#username').value || '').trim();
+      let uname = ($('#username').value || '').trim();
+      // allow refresh even when the username input is empty by falling back to g.userId
+      if(!uname && g.userId) uname = g.userId;
       if(!uname){ status('err','No username to refresh. Enter a username first.'); return; }
-      try{
-        status('', 'Refreshing data from Sleeper…');
-        // Remove all cached entries created by fetchJSON (keys prefixed with cache:)
-        try{
-          const keys = Object.keys(localStorage || {}).filter(k=>k&&k.startsWith('cache:'));
-          for(const k of keys) localStorage.removeItem(k);
-        }catch(e){}
-        await loadForUsername(uname);
-        status('ok','Data refreshed.');
-      }catch(e){ console.error('Refresh failed', e); status('err','Refresh failed.'); }
+      await refreshLiveAll(true);
     });
   }
 
-  $('#username').addEventListener('input', ()=>{ $('#viewLeaguesBtn').disabled = !$('#username').value.trim(); });
-  // ...existing code...
+  // Refresh live projections & matchups for all loaded leagues.
+  async function refreshLiveAll(force = true){
+    if(!g || !g.leagues) return;
+    const weekNow = +($('#weekSelect').value||1);
+    status('', 'Refreshing live projections…');
+    try{
+      g._forceFetch = Boolean(force);
+      await Promise.all(Object.values(g.leagues).map(async (entry)=>{
+        try{
+          const { league, users, rosters } = entry;
+          const season = +league.season;
+          const myRoster = rosters.find(r=>r.owner_id===g.userId) || rosters[0];
+          const myUser = users.find(u=>u.user_id===myRoster?.owner_id) || {};
+          const myTeamName = myUser.metadata?.team_name || myUser.display_name || `Team ${myRoster?.roster_id}`;
+          const proj = await projByPid(season, weekNow, 'regular', g.players, league.scoring_settings||{}, { force: Boolean(force) });
+          const projFn = (pid)=>proj[String(pid)]||0;
+          const preMap = entry.__preProj || null;
+          const prev = await matchupPreview(league.league_id, weekNow, league, users, rosters, g.players, projFn, myRoster.roster_id, myTeamName, preMap);
+          entry.__lastPreview = prev;
+        }catch(e){ /* ignore per-league failures */ }
+      }));
 
+      try{ renderLeagueList(g.selected); }catch(e){}
+      try{ await updateLeagueAlertBadges(weekNow); }catch(e){}
+
+      // If user currently viewing a league, re-render it to pick up live values
+      if (g.mode === 'league' && g.selected){ try{ await renderSelectedLeague(); }catch(e){} }
+
+      status('ok','Live projections updated.');
+    }catch(e){ console.error('refreshLiveAll failed', e); status('err','Live refresh failed'); }
+    finally{ try{ g._forceFetch = false; }catch(e){} }
+  }
+
+  function startAutoRefresh(intervalMs = 60000){ try{ stopAutoRefresh(); g._autoRefreshInterval = intervalMs; g._autoRefreshId = setInterval(()=>{ refreshLiveAll(true).catch(()=>{}); }, intervalMs); }catch(e){} }
+  function stopAutoRefresh(){ try{ if(g._autoRefreshId){ clearInterval(g._autoRefreshId); delete g._autoRefreshId; } }catch(e){} }
   // Tabs (league + user summary) + waiver jump
   document.addEventListener('click', async (e)=>{
     const btn1=e.target.closest('#leagueTabs .tab-btn');
