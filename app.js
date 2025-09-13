@@ -26,8 +26,9 @@ const STATIC_SCHEDULE = {
 };
 
 // ensure weeks 1..18 exist for 2025 by duplicating week 1 if missing
+// ensure weeks 1..18 exist for 2025 — leave missing weeks empty instead of duplicating week 1
 if(!STATIC_SCHEDULE['2025']) STATIC_SCHEDULE['2025'] = {};
-for(let w=1; w<=18; w++){ const wk=String(w); if(!STATIC_SCHEDULE['2025'][wk]) STATIC_SCHEDULE['2025'][wk] = STATIC_SCHEDULE['2025']['1']; }
+for(let w=1; w<=18; w++){ const wk=String(w); if(!Object.prototype.hasOwnProperty.call(STATIC_SCHEDULE['2025'], wk)) STATIC_SCHEDULE['2025'][wk] = []; }
 
 // Import helpers provided by `src/utils.js` and API helpers from `src/api.js`.
 const { normalizeTeam, $, el, escapeHtml, status, TTL, ck, parseBD, ageFrom, age } = window.__sha_utils || {};
@@ -66,10 +67,29 @@ async function loadPlayersMap() {
 // ===== Projections (Rotowire via Sleeper) =====
 const PROVIDER = 'rotowire';
 function feedPPR(it) {
-  const ks = ['ppr','pts_ppr','fantasy_points_ppr'];
-  for (const k of ks) if (it?.[k] != null) return +it[k] || 0;
+  // Provider rows vary; prefer explicit fantasy point totals if present.
+  const preferKeys = [
+    'fantasy_points_ppr', 'fantasy_points', 'fpts', 'pts_ppr', 'ppr', 'pts', 'fantasy_points_total'
+  ];
+  for (const k of preferKeys) if (it?.[k] != null) return +it[k] || 0;
   const s = it?.stats || {};
-  for (const k of ks) if (s?.[k] != null) return +s[k] || 0;
+  for (const k of preferKeys) if (s?.[k] != null) return +s[k] || 0;
+
+  // Kicker fallback: if the stats include FG/XP breakdown, compute using sensible defaults.
+  // This handles providers that expose field goal buckets instead of a single fantasy total.
+  const fg = Number(s.field_goals_made || s.fg_made || s.fgm || s.fg || s.fgs || 0) || 0;
+  const xp = Number(s.extra_points || s.xp || s.xps || 0) || 0;
+  const fg0_39 = Number(s.fg0_39 || s.fg_0_39 || s.fg_0_19 || 0) || 0;
+  const fg40_49 = Number(s.fg40_49 || s.fg_40_49 || 0) || 0;
+  const fg50 = Number(s.fg50 || s.fg_50 || 0) || 0;
+  // if we have any FG/XP info, build a default score: 0-39:3, 40-49:4, 50+:5, XP:1
+  if (fg || xp || fg0_39 || fg40_49 || fg50) {
+    const bucketSum = fg0_39 + fg40_49 + fg50;
+    const genericFg = Math.max(0, fg - bucketSum);
+    const pts = genericFg * 3 + fg0_39 * 3 + fg40_49 * 4 + fg50 * 5 + xp * 1;
+    return +pts || 0;
+  }
+
   return 0;
 }
 async function providerRows(season, week, season_type, opts = {}) {
@@ -283,12 +303,16 @@ function renderMatchup(sumDiv, myDiv, oppDiv, p){
   // compact scoreboard at top: render each side as name + score aligned vertically and centered
   // show projected totals only if both teams have no current scoring yet
   const showProjLine = (Number(p.me.current_total) === 0 && Number(p.opponent.current_total) === 0);
-  const leftSide = el('div',{class:'sb-side sb-left-side'}, [ el('div',{class:'sb-name', html:leftName}), el('div',{class:'sb-side-score', html:leftCur}) ]);
-  const rightSide = el('div',{class:'sb-side sb-right-side'}, [ el('div',{class:'sb-name', html:rightName}), el('div',{class:'sb-side-score', html:rightCur}) ]);
-  const center = el('div',{class:'sb-vs', html:'vs'});
-  const scoreRow = el('div',{class:'sb-row'}, [ leftSide, center, rightSide ]);
-  const scoreBoxChildren = [ scoreRow ];
-  if (showProjLine) scoreBoxChildren.push(el('div',{class:'sb-proj', html:`<em>Projected: ${leftProj} — ${rightProj}</em>`}));
+  // Build a centered scoreboard: team names on the sides, scores centered
+  const leftSide = el('div',{class:'sb-side sb-left-side'}, [ el('div',{class:'sb-name', html:leftName}) ]);
+  const rightSide = el('div',{class:'sb-side sb-right-side'}, [ el('div',{class:'sb-name', html:rightName}) ]);
+  const leftScore = el('div',{class:'sb-side-score', html:leftCur});
+  const rightScore = el('div',{class:'sb-side-score', html:rightCur});
+  // center area: two rows — top row shows scores, bottom row shows projections under each score
+  const topRow = el('div',{class:'sb-row'}, [ el('div',{class:'sb-side sb-score-left'}, [ leftScore ]), el('div',{class:'sb-vs', html:'vs'}), el('div',{class:'sb-side sb-score-right'}, [ rightScore ]) ]);
+  const projRow = showProjLine ? el('div',{class:'sb-row sb-center-proj'}, [ el('div',{class:'sb-proj', html:(leftProj)}), el('div',{class:'sb-vs', html:''}), el('div',{class:'sb-proj', html:(rightProj)}) ]) : null;
+  const centerScores = projRow ? el('div',{class:'sb-center-scores'}, [ topRow, projRow ]) : el('div',{class:'sb-center-scores'}, [ topRow ]);
+  const scoreBoxChildren = [ el('div',{class:'sb-row'}, [ leftSide, centerScores, rightSide ]) ];
   const scoreBox = el('div',{class:'scorebox-small'}, scoreBoxChildren);
   sumDiv.append(scoreBox);
 
@@ -660,6 +684,8 @@ async function renderUserSummary(){
 
   // wire up game filter for Rooting Interest
   wireGameFilter(week);
+  // prepare player search list (lazy populate once per load or if players map changes)
+  try{ buildPlayerSearchList(); }catch(e){}
 }
 
 // Render the Rooting Interest tables (Root For / Root Against).
@@ -697,49 +723,66 @@ async function renderRootingInterestTables(week, filterTeams=null){
       const oppLeagues = oppListMap.get(String(pid)) || [];
       const needFor = fset ? 1 : 2;
       const needAgainst = fset ? 1 : 2;
-      if(haveCount >= needFor){ rowsFor.push([name, pos, team, {v:haveCount, d:haveCount, ttip: haveLeagues.join('\n')}, {v:vsCount, d:vsCount, ttip: oppLeagues.join('\n')}]); }
-      if(vsCount >= needAgainst){ rowsAgainst.push([name, pos, team, {v:vsCount,d:vsCount, ttip: oppLeagues.join('\n')}, {v:haveCount,d:haveCount, ttip: haveLeagues.join('\n')}]); }
+      // Compose player cell: name + meta (smaller)
+      const playerCell = {
+        d: `<div style='display:flex;flex-direction:column;align-items:flex-start;'>`
+          + `<span class='player-name' style='font-weight:600;'>${escapeHtml(name)}</span>`
+          + `<span class='player-meta' style='font-size:12px;color:var(--muted);margin-top:2px;'>${escapeHtml(pos)} • ${escapeHtml(team)}</span>`
+          + `</div>`,
+        v: name
+      };
+      if(haveCount >= needFor){ rowsFor.push([playerCell, {v:haveCount, d:haveCount, ttip: haveLeagues.join('\n')}, {v:vsCount, d:vsCount, ttip: oppLeagues.join('\n')}]); }
+      if(vsCount >= needAgainst){ rowsAgainst.push([playerCell, {v:vsCount,d:vsCount, ttip: oppLeagues.join('\n')}, {v:haveCount,d:haveCount, ttip: haveLeagues.join('\n')}]); }
     }
 
-    rowsFor.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
+    // Only show Player, For, Against columns (no separate Pos/Team)
+    const headers = ['Player','For','Against'];
+    rowsFor.sort((a, b) => (b[1].v||0) - (a[1].v||0) || a[0].v.localeCompare(b[0].v));
     if (rowsFor.length === 0) {
       $('#usRootForTable').innerHTML = '<div class="note">No players with exposures meeting the threshold.</div>';
     } else {
-      renderSortableTable($('#usRootForTable'), ['Player','Pos','Team','For','Against'], rowsFor, ['str','str','str','num','num']);
+      renderSortableTable($('#usRootForTable'), headers, rowsFor, ['str','num','num']);
     }
 
-    rowsAgainst.sort((a, b) => (b[3].v||0) - (a[3].v||0) || a[0].localeCompare(b[0]));
+    // For 'Against', swap For/Against columns for visual alignment
+    const rowsAgainstAligned = rowsAgainst.map(r => [r[0], r[2], r[1]]);
     if (rowsAgainst.length === 0) {
       $('#usRootAgainstTable').innerHTML = '<div class="note">No opponents with exposures meeting the threshold this week.</div>';
     } else {
-      renderSortableTable($('#usRootAgainstTable'), ['Player','Pos','Team','Against','For'], rowsAgainst, ['str','str','str','num','num']);
+      renderSortableTable($('#usRootAgainstTable'), headers, rowsAgainstAligned, ['str','num','num']);
     }
   }catch(e){ console.warn('renderRootingInterestTables failed', e); }
 }
 
 // Try to fetch schedule for a week from Sleeper. Fallback to a minimal mapping if unavailable.
 async function fetchWeekGames(week, season=+($('#seasonMain').value||2025)){
-  // Prefer ESPN scoreboard API for a reliable public NFL schedule
+  // Prefer a local schedule JSON file first (repo-provided fallback), then try Sleeper, ESPN, etc.
   try{
-    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${encodeURIComponent(week)}&season=${encodeURIComponent(season)}`;
-    const data = await fetchJSON(url);
-    const events = data?.events || [];
-    const out = [];
-    for(const ev of events){
-      const comps = ev?.competitions || [];
-      if(!comps[0]) continue;
-      const comp = comps[0];
-      const compsTeams = comp.competitors || [];
-      const away = compsTeams.find(c=>c.homeAway==='away');
-      const home = compsTeams.find(c=>c.homeAway==='home');
-      const awayAb = away?.team?.abbreviation || away?.team?.shortDisplayName || null;
-      const homeAb = home?.team?.abbreviation || home?.team?.shortDisplayName || null;
-      if(awayAb && homeAb){ out.push({ away_team: awayAb.toUpperCase(), home_team: homeAb.toUpperCase(), label: `${awayAb.toUpperCase()} @ ${homeAb.toUpperCase()}` }); }
+    const local = await fetchJSON(`data/schedule-${season}.json`);
+    const wkStr = String(week);
+    if(local && (local[wkStr] || Array.isArray(local)) ){
+      const arr = Array.isArray(local[wkStr]) ? local[wkStr] : (Array.isArray(local) ? local.filter(g=>Number(g.week)===Number(week)) : null);
+      if(Array.isArray(arr) && arr.length>0){
+        return arr.map(g=>({ away_team: (g.away_team||g.away||g.away_team_abbr||'').toUpperCase(), home_team: (g.home_team||g.home||g.home_team_abbr||'').toUpperCase(), label: g.label || (g.away_team+' @ '+g.home_team) }));
+      }
     }
-    if(out.length>0) return out;
-  }catch(e){ console.warn('ESPN schedule fetch failed', e); }
+  }catch(e){ console.warn('Local schedule fetch failed', e); }
 
-  // If direct ESPN fetch failed (CORS or network), try via a public CORS proxy
+  // Prefer the Sleeper schedule endpoint first (CORS-friendly and canonical for NFL schedule)
+  try{
+    const games = await fetchJSON(`https://api.sleeper.app/v1/league/nfl/schedule/${season}`);
+    if (Array.isArray(games)){
+      const filtered = games.filter(g => Number(g.week) === Number(week));
+      if (filtered.length > 0) return filtered.map(g=>({ away_team: (g.away_team||g.away_team_abbr||g.away||'').toUpperCase(), home_team: (g.home_team||g.home_team_abbr||g.home||'').toUpperCase(), label: g.title || (g.away_team+' @ '+g.home_team) }));
+    }
+    if (games && typeof games === 'object'){
+      const arr = Object.values(games).flat(); const filtered = arr.filter(g => Number(g.week) === Number(week));
+      if (filtered.length > 0) return filtered.map(g=>({ away_team: (g.away_team||g.away_team_abbr||g.away||'').toUpperCase(), home_team: (g.home_team||g.home_team_abbr||g.home||'').toUpperCase(), label: g.title || (g.away_team+' @ '+g.home_team) }));
+    }
+  }catch(e){ console.warn('Sleeper schedule fetch failed', e); }
+
+  // Next: try ESPN public API (may be blocked by CORS). Prefer direct fetch then fallback to a public proxy.
+  // Try ESPN via a public CORS proxy first (helps avoid CORS / 500 server errors seen from direct calls)
   try{
     const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${encodeURIComponent(week)}&season=${encodeURIComponent(season)}`;
     const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
@@ -760,12 +803,26 @@ async function fetchWeekGames(week, season=+($('#seasonMain').value||2025)){
     if(out.length>0) return out;
   }catch(e){ console.warn('ESPN proxy schedule fetch failed', e); }
 
-  // fallback: try Sleeper schedule endpoint (best-effort)
+  // Try ESPN direct as a secondary attempt
   try{
-    const games = await fetchJSON(`https://api.sleeper.app/v1/league/nfl/schedule/${season}`);
-    if(Array.isArray(games)) return games.filter(g=>Number(g.week)===Number(week));
-    if(typeof games==='object'){ const arr = Object.values(games).flat(); return arr.filter(g=>Number(g.week)===Number(week)); }
-  }catch(e){ console.warn('Sleeper schedule fetch failed', e); }
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${encodeURIComponent(week)}&season=${encodeURIComponent(season)}`;
+    const data = await fetchJSON(url);
+    const events = data?.events || [];
+    const out = [];
+    for(const ev of events){
+      const comps = ev?.competitions || [];
+      if(!comps[0]) continue;
+      const comp = comps[0];
+      const compsTeams = comp.competitors || [];
+      const away = compsTeams.find(c=>c.homeAway==='away');
+      const home = compsTeams.find(c=>c.homeAway==='home');
+      const awayAb = away?.team?.abbreviation || away?.team?.shortDisplayName || null;
+      const homeAb = home?.team?.abbreviation || home?.team?.shortDisplayName || null;
+      if(awayAb && homeAb){ out.push({ away_team: awayAb.toUpperCase(), home_team: homeAb.toUpperCase(), label: `${awayAb.toUpperCase()} @ ${homeAb.toUpperCase()}` }); }
+    }
+    if(out.length>0) return out;
+  }catch(e){ console.warn('ESPN schedule fetch failed', e); }
+
   // Final fallback: STATIC_SCHEDULE embedded in the app
   try{
     const s = String(season);
@@ -785,18 +842,40 @@ function wireGameFilter(week){
   const sel = $('#usGameSelect'); const btn = $('#usLoadGames'); const playersWrap = $('#usGamePlayers');
   if(!sel || !btn || !playersWrap) return;
   sel.innerHTML = '<option value="">All games (select week)</option>';
+  // Team abbreviation normalization map for dropdown
+  const teamAbbrMap = {
+    'NWE':'NE', 'NE':'NE',
+    'KAN':'KC', 'KC':'KC',
+    'SFO':'SF', 'SF':'SF',
+    'LAC':'LAC', 'SDG':'LAC', 'SD':'LAC',
+    'IND':'IND',
+    'LVR':'LV', 'OAK':'LV', 'LV':'LV',
+    'STL':'LAR', 'LA':'LAR', 'LAR':'LAR',
+    'JAC':'JAX', 'JAX':'JAX',
+    'NYJ':'NYJ', 'NYG':'NYG', 'MIA':'MIA', 'BUF':'BUF', 'CIN':'CIN', 'BAL':'BAL', 'PIT':'PIT', 'CLE':'CLE', 'DET':'DET', 'CHI':'CHI', 'GB':'GB', 'DAL':'DAL', 'PHI':'PHI', 'SEA':'SEA', 'DEN':'DEN', 'MIN':'MIN', 'ATL':'ATL', 'CAR':'CAR', 'TB':'TB', 'TEN':'TEN'
+  };
   const doLoadGames = async ()=>{
     btn.disabled = true; btn.textContent='Loading…';
     try{
-  const games = await fetchWeekGames(wk);
+      const games = await fetchWeekGames(wk);
       sel.innerHTML = '<option value="">Select a game…</option>';
       if(Array.isArray(games) && games.length>0){
         for(const g of games){
-          // normalize team codes when storing in option value so comparisons match g.players
-          const awayCode = normalizeTeam(g.away_team);
-          const homeCode = normalizeTeam(g.home_team);
+          // normalize team codes for dropdown
+          let away = g.away_team;
+          let home = g.home_team;
+          // Special handling for LAC (Colts) and LAC (Raiders)
+          if(away === 'LAC' && g.home_team === 'IND') away = 'IND';
+          if(home === 'LAC' && g.away_team === 'IND') home = 'IND';
+          if(away === 'LAC' && g.home_team === 'LV') away = 'LV';
+          if(home === 'LAC' && g.away_team === 'LV') home = 'LV';
+          // Apply mapping
+          away = teamAbbrMap[away] || away;
+          home = teamAbbrMap[home] || home;
+          const awayCode = normalizeTeam(away);
+          const homeCode = normalizeTeam(home);
           const id = awayCode && homeCode ? `${awayCode}-${homeCode}` : (g.game_id||JSON.stringify(g));
-          const label = g.away_team && g.home_team ? `${g.away_team} @ ${g.home_team}` : (g.title||id);
+          const label = away && home ? `${away} @ ${home}` : (g.title||id);
           const o = el('option',{value:id, html: label}); sel.append(o);
         }
       } else {
@@ -838,7 +917,12 @@ function wireGameFilter(week){
           if(pairs.length>0){ for(const p of pairs){ sel.append(el('option',{value:p.id, html:p.label})); } }
           else { sel.innerHTML = '<option value="">No fantasy matchups found either</option>'; }
         };
-        document.getElementById('usShowFantasy')?.addEventListener('click', fantasyLoader);
+  document.getElementById('usShowFantasy')?.addEventListener('click', fantasyLoader);
+  // Auto-invoke the fantasy loader because NFL schedule fetch failed —
+  // populate the dropdown automatically so the user doesn't have to click.
+  try{ if(typeof status === 'function') status('warn','NFL schedule not available; loading fantasy matchups from your leagues...'); }catch(e){}
+  // fire-and-forget the async loader (it will remove the helper nodes when running)
+  fantasyLoader().catch(()=>{});
       }
     }catch(err){ console.warn('load games failed', err); sel.innerHTML='<option value="">Failed to load games</option>'; }
     btn.disabled=false; btn.textContent='Load games';
@@ -1029,7 +1113,7 @@ async function updateLeagueAlertBadges(week){
     }catch(e){}
   const dot = list.querySelector(`[data-id="${id}"] .league-dot`);
     if (dot){
-      // If this league is currently active in the UI, check the rendered matchup DOM for starter/bench dots
+      // If this league is currently active in the UI, inspect the rendered matchup DOM for starter/bench dots
       try{
         if (g.selected === id){
           const activeMatchupArea = document.querySelector('#matchupSummary') || document.querySelector('#myStarters') || document.querySelector('#oppStarters');
@@ -1042,18 +1126,23 @@ async function updateLeagueAlertBadges(week){
         }
       }catch(e){ }
 
-      // render three-dot indicator: red, yellow, green (green means OK)
-      dot.innerHTML = '';
-      const redDot = el('span',{class:'ldot'});
-      const yellowDot = el('span',{class:'ldot'});
-      const greenDot = el('span',{class:'ldot'});
-      // apply active classes
-      if (status.red) redDot.classList.add('red-active');
-      if (status.yellow) yellowDot.classList.add('yellow-active');
-      // green is active only when neither red nor yellow present
-      if (!status.red && !status.yellow) greenDot.classList.add('green-active');
-      dot.append(redDot, yellowDot, greenDot);
-      dot.title = status.red ? 'Starter issue' : (status.yellow ? 'Bench has better projected' : 'All starters OK');
+      // Decide whether to show a dot based on selected week vs current default week
+      const selectedWeek = Number(week || (+($('#weekSelect')?.value || 1)));
+      const defaultWeek = computeDefaultWeekByTuesday();
+      // If selected week is prior to the current default week, show no dot
+      if (selectedWeek < defaultWeek){
+        dot.innerHTML = '';
+        dot.title = '';
+      } else {
+        // Render a single dot according to priority: red > yellow > green
+        dot.innerHTML = '';
+        const single = el('span',{class:'ldot'});
+        if (status.red) single.classList.add('red-active');
+        else if (status.yellow) single.classList.add('yellow-active');
+        else single.classList.add('green-active');
+        dot.append(single);
+        dot.title = status.red ? 'Starter issue' : (status.yellow ? 'Bench has better projected' : 'All starters OK');
+      }
     }
   }));
 }
@@ -1223,7 +1312,22 @@ async function renderWaiverWire(league, rosters, season, week, scoring, preferre
 }
 
 // ===== UI utilities =====
-function setWeekOptions(){ const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o);} }
+// Populate week options; accepts optional defaultWeek to preselect
+function setWeekOptions(defaultWeek){
+  const wk=$('#weekSelect'); if(!wk) return; wk.innerHTML='';
+  for(let w=1; w<=18; w++){
+    const o=el('option',{value:String(w), html:'Week '+w});
+    if(defaultWeek && Number(defaultWeek)===w) { o.selected = true; o.setAttribute('selected','selected'); }
+    wk.append(o);
+  }
+  // if no default selected, fallback to week 1
+  if(!wk.querySelector('option[selected]')){
+    const first = wk.querySelector('option[value="1"]'); if(first) { first.selected = true; first.setAttribute('selected','selected'); }
+  }
+  // Ensure the select's value reflects the default (some browsers/flows read .value not option[selected])
+  try{ if(defaultWeek) wk.value = String(defaultWeek); }catch(e){}
+  try{ console.log('[MFA] setWeekOptions defaultWeek=', defaultWeek, 'selectedValue=', wk.value); }catch(e){}
+}
 function showControls(){ $('#seasonGroup').classList.remove('hidden'); $('#weekGroup').classList.remove('hidden'); }
 function resetMain(){
   $('#leagueViews').classList.add('hidden'); $('#userSummary').classList.add('hidden'); $('#contextNote').textContent=''; $('#posNote').textContent='';
@@ -1417,7 +1521,12 @@ async function loadForUsername(uname){
   entry.__lastPreview = prev;
       }catch(e){ /* ignore per-league failures */ }
     }));
-    setWeekOptions(); showControls();
+  // compute and apply default week based on current date / Tuesday rule
+  const defaultWeek = computeDefaultWeekByTuesday();
+  try{ console.log('[MFA] loadForUsername before setWeekOptions defaultWeek=', defaultWeek, 'currentSelect=', $('#weekSelect')?$('#weekSelect').value:undefined); }catch(e){}
+  setWeekOptions(defaultWeek);
+  try{ console.log('[MFA] loadForUsername after setWeekOptions selected=', $('#weekSelect')?$('#weekSelect').value:undefined); }catch(e){}
+  showControls();
 
     const sm=$('#summaryItem'); sm.classList.remove('hidden'); sm.classList.add('active');
     sm.onclick = async ()=>{ g.mode='summary'; g.selected=null; document.querySelectorAll('.league-item').forEach(n=>n.classList.remove('active')); sm.classList.add('active'); await renderUserSummary(); };
@@ -1439,9 +1548,11 @@ async function loadForUsername(uname){
 // ===== Events & init =====
 function wireEvents(){
   $('#weekSelect').addEventListener('change', async ()=>{
-    const week = +($('#weekSelect').value||1);
-    if(g.mode==='summary') await renderUserSummary(); else await renderSelectedLeague();
-    await updateLeagueAlertBadges(week);
+  const week = +($('#weekSelect').value||1);
+  // Refresh previews for all loaded leagues so sidebar mini-scores update immediately
+  try{ if(typeof refreshLiveAll === 'function') await refreshLiveAll(false); }catch(e){ /* ignore */ }
+  if(g.mode==='summary') await renderUserSummary(); else await renderSelectedLeague();
+  await updateLeagueAlertBadges(week);
   });
 
   $('#seasonMain').addEventListener('change', async ()=>{
@@ -1452,8 +1563,13 @@ function wireEvents(){
       g.leagues={}; await Promise.all(leagues.map(async L=>{ g.leagues[L.league_id]=await loadLeagueBundle(L.league_id); }));
       status('ok', `Loaded ${leagues.length} league(s).`); renderLeagueList(); g.mode='summary'; $('#summaryItem').classList.add('active'); await renderUserSummary();
 
-      const week = +($('#weekSelect').value||1);
-      await updateLeagueAlertBadges(week);
+  // recompute default week now that season changed
+  const defaultWeek = computeDefaultWeekByTuesday();
+  try{ console.log('[MFA] seasonMain change before setWeekOptions defaultWeek=', defaultWeek, 'currentSelect=', $('#weekSelect')?$('#weekSelect').value:undefined); }catch(e){}
+  setWeekOptions(defaultWeek);
+  try{ console.log('[MFA] seasonMain change after setWeekOptions selected=', $('#weekSelect')?$('#weekSelect').value:undefined); }catch(e){}
+  const week = +($('#weekSelect').value||1);
+  await updateLeagueAlertBadges(week);
 
     }catch(e){ console.error(e); status('err','Failed to reload for that season.'); }
   });
@@ -1535,6 +1651,7 @@ function wireEvents(){
       document.querySelectorAll('#usTabs .tab-btn').forEach(x=>x.classList.remove('active'));
       btn2.classList.add('active');
       const id=btn2.dataset.tab; document.querySelectorAll('#userSummary .sections > section').forEach(s=>s.classList.toggle('active', s.id===id));
+      if(id==='us-search'){ try{ buildPlayerSearchList(); }catch(e){} }
       return;
     }
 
@@ -1566,10 +1683,171 @@ function wireEvents(){
   });
 }
 
+// ===== Player Search (User Summary tab) =====
+let _playerSearchBuilt = false;
+let _playerSearchIndex = [];
+let _playerSearchLastQ = '';
+let _playerSearchActive = -1;
+function buildPlayerSearchList(){
+  if(!g.players) return; if(_playerSearchBuilt) return;
+  _playerSearchIndex = [];
+  for(const [pid, meta] of Object.entries(g.players||{})){
+    const pos = (meta.position||'').toUpperCase(); if(!['QB','RB','WR','TE','K','D/ST','DST','DEF'].includes(pos)) continue;
+    const name = meta.full_name || (meta.first_name && meta.last_name ? `${meta.first_name} ${meta.last_name}` : (meta.last_name||''));
+    if(!name) continue;
+    const team = (meta.team||'FA').toUpperCase();
+    _playerSearchIndex.push({ pid, name, pos: (pos==='D/ST'||pos==='DST')?'DEF':pos, team });
+  }
+  _playerSearchIndex.sort((a,b)=> a.name.localeCompare(b.name));
+  _playerSearchBuilt = true;
+  wirePlayerSearchEvents();
+}
+function wirePlayerSearchEvents(){
+  const input = document.getElementById('playerSearchInput');
+  const btn = document.getElementById('playerSearchBtn');
+  const box = document.getElementById('playerSearchSuggest');
+  if(!input || !btn || !box) return;
+  if(btn && !btn._wired){ btn._wired=true; btn.addEventListener('click', ()=> runPlayerSearch(input.value.trim())); }
+  if(input && !input._wired){
+    input._wired = true;
+    input.addEventListener('input', ()=> showPlayerSuggestions(input.value));
+    input.addEventListener('keydown', (e)=>{
+      if(box.classList.contains('hidden')){ if(e.key==='Enter'){ runPlayerSearch(input.value.trim()); } return; }
+      if(e.key==='ArrowDown'){ e.preventDefault(); movePlayerSuggest(1); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); movePlayerSuggest(-1); }
+      else if(e.key==='Enter'){ e.preventDefault(); selectActivePlayerSuggest(); }
+      else if(e.key==='Escape'){ hidePlayerSuggestions(); }
+    });
+    input.addEventListener('blur', ()=>{ setTimeout(()=> hidePlayerSuggestions(), 150); });
+  }
+}
+function hidePlayerSuggestions(){ const box=document.getElementById('playerSearchSuggest'); if(box) box.classList.add('hidden'); _playerSearchActive=-1; }
+function showPlayerSuggestions(q){
+  const box = document.getElementById('playerSearchSuggest'); if(!box){ return; }
+  _playerSearchLastQ = q;
+  if(!q){ box.innerHTML=''; box.classList.add('hidden'); return; }
+  const qq = q.toLowerCase();
+  const matches = _playerSearchIndex.filter(p => p.name.toLowerCase().includes(qq)).slice(0,30);
+  if(matches.length===1 && matches[0].name.toLowerCase()===qq){ // auto-run for exact
+    hidePlayerSuggestions(); runPlayerSearch(matches[0].name, matches[0].pid); return;
+  }
+  box.innerHTML='';
+  if(matches.length===0){ box.classList.add('hidden'); return; }
+  for(let i=0;i<matches.length;i++){
+    const m = matches[i];
+    const opt = document.createElement('div'); opt.className='ps-option'; opt.setAttribute('role','option'); opt.dataset.pid=m.pid; opt.dataset.index=String(i);
+    const nameSpan = document.createElement('span'); nameSpan.className='ps-name'; nameSpan.textContent = m.name;
+    const metaSpan = document.createElement('span'); metaSpan.className='ps-meta'; metaSpan.textContent = `${m.pos} • ${m.team}`;
+    opt.append(nameSpan, metaSpan);
+    opt.addEventListener('mousedown', (e)=>{ e.preventDefault(); runPlayerSearch(m.name, m.pid); hidePlayerSuggestions(); });
+    box.append(opt);
+  }
+  _playerSearchActive = -1;
+  box.classList.remove('hidden');
+}
+function movePlayerSuggest(delta){
+  const box=document.getElementById('playerSearchSuggest'); if(!box || box.classList.contains('hidden')) return;
+  const opts = [...box.querySelectorAll('.ps-option')]; if(opts.length===0) return;
+  _playerSearchActive += delta; if(_playerSearchActive < 0) _playerSearchActive = opts.length-1; if(_playerSearchActive >= opts.length) _playerSearchActive = 0;
+  opts.forEach((o,i)=> o.classList.toggle('active', i===_playerSearchActive));
+  const active = opts[_playerSearchActive]; if(active){ const r = active.getBoundingClientRect(); const br = box.getBoundingClientRect(); if(r.top < br.top) active.scrollIntoView({block:'nearest'}); else if(r.bottom > br.bottom) active.scrollIntoView({block:'nearest'}); }
+}
+function selectActivePlayerSuggest(){ const box=document.getElementById('playerSearchSuggest'); if(!box) return; const active = box.querySelector('.ps-option.active'); if(active){ runPlayerSearch(active.querySelector('.ps-name').textContent.trim(), active.dataset.pid); hidePlayerSuggestions(); } }
+function fuzzyMatch(a,b){ return a.toLowerCase().includes(b.toLowerCase()); }
+function findPlayerByName(name){ if(!name) return null; const lower=name.toLowerCase(); return _playerSearchIndex.find(p=>p.name.toLowerCase()===lower) || _playerSearchIndex.find(p=>p.name.toLowerCase().includes(lower)) || null; }
+function runPlayerSearch(raw, forcedPid){
+  const resC = document.getElementById('playerSearchResults'); const metaC = document.getElementById('playerSearchMeta');
+  if(!resC || !metaC){ return; }
+  resC.innerHTML=''; metaC.textContent='';
+  if(!raw){ metaC.textContent='Enter a player name to search.'; return; }
+  let found = null; if(forcedPid){ const meta = g.players && g.players[forcedPid]; if(meta) found = { pid: forcedPid, meta }; }
+  if(!found) found = findPlayerByName(raw);
+  if(!found){ metaC.textContent='No player matched that name.'; return; }
+  const { pid, meta } = found;
+  const pos = (meta.position||'').toUpperCase();
+  let team = (meta.team||'FA');
+  if(team===''||team==null) team='FA';
+  const name = meta.full_name || (meta.first_name && meta.last_name ? (meta.first_name+' '+meta.last_name) : (meta.last_name || pid));
+  metaC.innerHTML = `${name} • ${pos} • ${team}`;
+  // Build league ownership rows
+  const week = +($('#weekSelect')?.value||1);
+  const rows = [];
+  const myLeagues = [];
+  const oppLeagues = [];
+  const freeLeagues = [];
+  for(const entry of Object.values(g.leagues||{})){
+    const { league, rosters, users } = entry; const leagueName = league?.name || league?.league_id || 'League';
+    const myRoster = rosters.find(r=>r.owner_id===g.userId);
+    const rosterWith = rosters.find(r => (r.players||[]).includes(pid) || (r.starters||[]).includes(pid) || (r.taxi||[]).includes(pid));
+    let state=''; let ownerName='';
+    if(rosterWith){
+      if(myRoster && rosterWith.roster_id === myRoster.roster_id){ state='Mine'; myLeagues.push(leagueName); }
+      else {
+        state='Opponent';
+        const u = (users||[]).find(u=>u.user_id === rosterWith.owner_id) || {};
+        ownerName = u.metadata?.team_name || u.display_name || (`Team ${rosterWith.roster_id}`);
+        oppLeagues.push(`${leagueName} (${ownerName})`);
+      }
+    } else { state='Free'; freeLeagues.push(leagueName); }
+    rows.push([leagueName, state, ownerName || '—']);
+  }
+  // Sort rows by state priority Mine > Opponent > Free
+  const order = { 'Mine':0, 'Opponent':1, 'Free':2 };
+  rows.sort((a,b)=> (order[a[1]]-order[b[1]]) || a[0].localeCompare(b[0]));
+  const container = document.createElement('div');
+  renderSortableTable(container, ['League','Status','Owner'], rows, ['str','str','str']);
+  // Summary chips
+  const summary = document.createElement('div'); summary.style.marginTop='8px'; summary.className='note';
+  summary.innerHTML = `<b>Owned by you:</b> ${myLeagues.length} • <b>Owned by others:</b> ${oppLeagues.length} • <b>Free:</b> ${freeLeagues.length}`;
+  resC.append(summary, container);
+}
+
+function computeDefaultWeekByTuesday(seasonStartDate){
+  // seasonStartDate: Date for week 1 Tuesday boundary reference (if null, use Sept 1 of season year)
+  const rawNow = new Date();
+  // normalize to local date (no time) to avoid timezone surprises
+  const now = new Date(rawNow.getFullYear(), rawNow.getMonth(), rawNow.getDate());
+  // Find the season year from seasonMain if present, else default to current year
+  const seasonSel = Number($('#seasonMain')?.value || (now.getFullYear()));
+  // Default reference date: Sept 1 of season year
+  const ref = seasonStartDate ? new Date(seasonStartDate) : new Date(seasonSel, 8, 1);
+  // If explicit week transitions are provided by src/defaults.js, prefer them.
+  try{
+    const trans = (window.__sha_defaults && Array.isArray(window.__sha_defaults.weekTransitions)) ? window.__sha_defaults.weekTransitions : null;
+    if(trans && trans.length>0){
+      // find highest transition iso that is <= now
+      const nowMs = now.getTime();
+      let lastWeek = 1;
+      for(const t of trans){
+        const tMs = Date.parse(t.iso);
+        if(Number.isNaN(tMs)) continue;
+        if(nowMs >= tMs) lastWeek = Math.max(lastWeek, Number(t.week)||lastWeek);
+      }
+  try{ console.log('[MFA] computeDefaultWeekByTuesday using transitions, now=', now.toISOString(), 'lastWeek=', lastWeek); }catch(e){}
+  return Math.min(Math.max(1, lastWeek), 18);
+    }
+  }catch(e){ /* fall back */ }
+
+  // Fallback: Find the first Tuesday on or after ref (inclusive)
+  const firstTue = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  while(firstTue.getDay() !== 2) firstTue.setDate(firstTue.getDate() + 1);
+  if(now < firstTue) return 1;
+  // Count how many Tuesdays (including firstTue) have occurred up to 'now'
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysSinceFirst = Math.floor((now - firstTue) / msPerDay);
+  const tuesdaysElapsed = Math.floor(daysSinceFirst / 7);
+  const week = 1 + tuesdaysElapsed;
+  return Math.min(Math.max(1, week), 18);
+}
+
 function init(){
   $('#appLayout').classList.add('hidden'); $('#landing').classList.remove('hidden');
-  const wk=$('#weekSelect'); wk.innerHTML=''; for(let w=1; w<=18; w++){ const o=el('option',{value:String(w), html:'Week '+w}); if(w===1) o.selected=true; wk.append(o); }
+  // compute default week based on Tuesday boundary rule
+  const defaultWeek = computeDefaultWeekByTuesday();
+  setWeekOptions(defaultWeek);
   wireEvents();
-  console.log('[MFA] ready');
+  // Diagnostic: report whether explicit defaults file loaded and how many transitions it provided
+  try{ console.log('[MFA] __sha_defaults present=', !!window.__sha_defaults, 'weekTransitionsLen=', (window.__sha_defaults && window.__sha_defaults.weekTransitions ? window.__sha_defaults.weekTransitions.length : 0)); }catch(e){}
+  console.log('[MFA] ready — default week:', defaultWeek);
 }
 window.addEventListener('DOMContentLoaded', init);

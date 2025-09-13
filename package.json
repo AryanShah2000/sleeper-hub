@@ -1,0 +1,9 @@
+{
+  "name": "sleeper-hub",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx http-server -p 8000",
+    "start": "npx http-server -p 8000"
+  }
+}

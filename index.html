@@ -209,6 +209,12 @@
   .scorebox-small .sb-side{min-width:140px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px}
   .scorebox-small .sb-name{font-weight:700;font-size:13px;margin:0}
   .scorebox-small .sb-side-score{font-weight:900;font-size:18px;line-height:1}
+  /* Center scores with a stacked projection row: ensure columns align */
+  .scorebox-small .sb-center-scores{display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .scorebox-small .sb-center-scores .sb-row{display:flex;align-items:center;justify-content:center;gap:12px}
+  .scorebox-small .sb-center-scores .sb-score-left, .scorebox-small .sb-center-scores .sb-score-right{min-width:120px;display:flex;align-items:center;justify-content:center}
+  .scorebox-small .sb-center-proj{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:4px}
+  .scorebox-small .sb-center-proj .sb-proj{min-width:120px;text-align:center;color:var(--muted);font-size:12px}
   .scorebox-small .sb-vs{font-size:12px;color:var(--muted);font-weight:700}
 
   /* Matchup table layout */
@@ -247,6 +253,21 @@
   .league-legend .legend-item .ldot.yellow-active{background:#ffd166}
   .league-legend .legend-item .ldot.green-active{background:#84ffb5}
   .league-legend .legend-text{color:var(--muted);font-size:12px}
+
+  /* compact controls in sidebar: season and week inline and smaller */
+  .controls-left{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+  .controls-left .group{min-width:0;display:inline-flex;flex-direction:column}
+  .controls-left .group label{font-size:12px;margin-bottom:6px}
+  .controls-left .group select{width:110px}
+  /* Player search dropdown */
+  .player-search-box input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1630;color:var(--text);font-size:15px}
+  .ps-suggest{position:absolute;left:0;right:0;top:70px;background:#07132a;border:1px solid var(--border);border-radius:10px;max-height:300px;overflow:auto;box-shadow:0 6px 24px -4px rgba(0,0,0,0.45);z-index:50;padding:4px;display:flex;flex-direction:column;gap:2px}
+  .ps-suggest.hidden{display:none}
+  .ps-option{padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;gap:12px;align-items:center;background:#0c1a34;border:1px solid transparent}
+  .ps-option .ps-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .ps-option .ps-meta{font-size:12px;color:var(--muted);white-space:nowrap}
+  .ps-option:hover, .ps-option.active{background:#13284d;border-color:#1e3d72}
+  @media (max-width:640px){ .ps-option .ps-name{max-width:160px} }
 </style>
 </head>
 <body>
@@ -311,6 +332,21 @@
 
   <!-- removed manual League ID input and Add button -->
 
+    <!-- season & week selectors moved here from the top controls (left sidebar) -->
+    <div class="controls-left">
+      <div class="group" id="seasonGroup">
+        <label for="seasonMain">Season</label>
+        <select id="seasonMain">
+          <option value="2025" selected>2025</option>
+          <option value="2024">2024</option>
+        </select>
+      </div>
+      <div class="group" id="weekGroup">
+        <label for="weekSelect">Week</label>
+        <select id="weekSelect"></select>
+      </div>
+    </div>
+
     <div class="nav-head">Overview</div>
     <div id="summaryItem" class="summary-item hidden">
       <div class="li-info">
@@ -320,7 +356,7 @@
   <!-- 3-dot signal only -->
     </div>
 
-    <div class="nav-head">Your Leagues</div>
+  <div class="nav-head">Your Leagues</div>
     <div id="leagueList" class="league-list"></div>
     <div class="league-legend" aria-hidden="true">
       <div class="legend-item"><span class="ldot red-active" aria-hidden="true"></span><span class="legend-text">Red: starter missing or projected 0</span></div>
@@ -359,24 +395,28 @@
         <button class="tab-btn active" data-tab="us-root">Rooting Interest</button>
         <button class="tab-btn" data-tab="us-byes">Bye Count</button>
         <button class="tab-btn" data-tab="us-matchups">Matchup Overview</button>
+        <button class="tab-btn" data-tab="us-search">Player Search</button>
       </div>
       <div class="sections">
         <section id="us-root" class="active">
-          <h3 class="subhead">Who to Root For</h3>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-            <div style="flex:1">
-              <div id="usGameFilterWrap" style="display:flex;gap:8px;align-items:center">
-                <label style="color:var(--muted);font-weight:600">Filter by game</label>
-                <select id="usGameSelect"><option value="">All games (select week)</option></select>
-                <button id="usLoadGames" style="padding:8px 10px">Load games</button>
+          <div class="rooting-interest-row" style="display:flex;flex-direction:column;gap:0;">
+            <div id="usGameFilterWrap" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+              <label style="color:var(--muted);font-weight:600">Filter by game</label>
+              <select id="usGameSelect"><option value="">All games (select week)</option></select>
+              <button id="usLoadGames" style="padding:8px 10px">Load games</button>
+            </div>
+            <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
+              <div class="rooting-interest-col" style="flex:1;min-width:320px;display:flex;flex-direction:column;">
+                <h3 class="subhead" style="margin-bottom:0;text-align:center;width:100%;">Who to Root For</h3>
+                <div id="usRootForTable" style="margin-top:8px;"></div>
+                <div id="usGamePlayers" style="margin-top:10px"></div>
+              </div>
+              <div class="rooting-interest-col" style="flex:1;min-width:320px;display:flex;flex-direction:column;">
+                <h3 class="subhead" style="margin-bottom:0;text-align:center;width:100%;">Who to Root Against</h3>
+                <div id="usRootAgainstTable" style="margin-top:8px;"></div>
               </div>
             </div>
           </div>
-          <div id="usRootForTable"></div>
-          <div id="usGamePlayers" style="margin-top:10px"></div>
-
-          <h3 class="subhead" style="margin-top:14px;">Who to Root Against</h3>
-          <div id="usRootAgainstTable"></div>
         </section>
   <!-- projections tab removed -->
   <section id="us-byes">
@@ -384,6 +424,19 @@
           <div id="usByeMatrix"></div>
         </section>
   <section id="us-matchups"><div id="usMatchups" class="matchup-grid"></div></section>
+  <section id="us-search">
+          <h3 class="subhead" style="margin-top:0;">Cross-League Player Search</h3>
+          <div class="player-search-box" style="max-width:520px;position:relative">
+            <label for="playerSearchInput" style="color:var(--muted);font-weight:600;font-size:12px;display:block;margin:0 0 4px">Player</label>
+            <input id="playerSearchInput" placeholder="Start typing a player name (e.g. Justin Jefferson)" autocomplete="off" />
+            <div id="playerSearchSuggest" class="ps-suggest hidden" role="listbox" aria-label="Player suggestions"></div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <button id="playerSearchBtn">Search</button>
+            <div id="playerSearchMeta" class="note" style="margin:0"></div>
+          </div>
+          <div id="playerSearchResults" style="margin-top:12px"></div>
+        </section>
       </div>
     </div>
 
@@ -422,6 +475,7 @@
 <script src="src/api.js?v=2" defer></script>
 <script src="src/projections.js?v=2" defer></script>
 <script src="src/rosters.js?v=2" defer></script>
+<script src="src/defaults.js?v=1" defer></script>
 <script src="app.js?v=2" defer></script>
 </body>
 </html>
